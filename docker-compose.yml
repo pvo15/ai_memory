@@ -1,0 +1,16 @@
+services:
+  ai-memory:
+    build: .
+    image: ai-memory:local
+    container_name: ai-memory
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MEMORY_DB: /data/memory.db
+    ports:
+      - "127.0.0.1:8765:8765"   # only reachable from this Mac
+    volumes:
+      - ./data:/data
+      - ./backups:/backups      # daily backups, separate from data/ on purpose
+      - ${PROJECTS_DIR:-${HOME}/Desktop/projects}:/repos:ro   # rules files (CLAUDE.md, guidelines...), read-only
+      - ${HOME}/Library/Logs/mlx-embed.log:/logs/mlx-embed.log:ro   # MLX log for the dashboard

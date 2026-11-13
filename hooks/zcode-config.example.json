@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "events": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "$HOME/Documents/ai-memory/hooks/session-start.sh --json",
+              "timeoutMs": 5000,
+              "statusMessage": "Loading task journal (ai-memory)",
+              "onError": "allow"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

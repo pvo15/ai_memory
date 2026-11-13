@@ -1,0 +1,26 @@
+# Secrets — never commit (each developer has their own)
+.env
+.env.*
+!.env.example
+
+# Personal data: memories, task journals, Jira cache, code index
+data/
+backups/
+backup-*/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Personal notes and IDE settings
+HANDOFF_PROMPT.md
+VILIX.md
+.idea/
+.vscode/
+
+# Build output / dependencies
+web/node_modules/
+web/dist/
+__pycache__/
+*.pyc
+.DS_Store

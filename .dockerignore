@@ -1,0 +1,10 @@
+.env
+backup-*
+backups
+data
+mlx-server
+web/dist
+web/node_modules
+.git
+.env.*
+.idea
