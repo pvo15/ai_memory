@@ -79,14 +79,14 @@ def _repo_label() -> str:
 def _env() -> dict:
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true"}
     if GIT_TOKEN and REPO_URL.startswith("https://"):
-        basic = base64.b64encode(f":{GIT_TOKEN}".encode()).decode()  # Azure DevOps / GitHub PAT
+        basic = base64.b64encode(f"ai-memory:{GIT_TOKEN}".encode()).decode()  # PAT as password; any user name works (Azure DevOps, GitHub, GitLab)
         env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="http.extraHeader",
                    GIT_CONFIG_VALUE_0=f"Authorization: Basic {basic}")
     return env
 
 
 def _scrub(text: str) -> str:
-    for s in filter(None, (GIT_TOKEN, GIT_TOKEN and base64.b64encode(f":{GIT_TOKEN}".encode()).decode())):
+    for s in filter(None, (GIT_TOKEN, GIT_TOKEN and base64.b64encode(f"ai-memory:{GIT_TOKEN}".encode()).decode())):
         text = text.replace(s, "***")
     return text
 

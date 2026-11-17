@@ -11,7 +11,7 @@ Your data is one SQLite file and never leaves your Mac.
 | Area | What you get |
 |---|---|
 | 🧠 **Memory** | Preferences, conventions and decisions, saved once and shared by every AI |
-| 👥 **Team sync** | Share memories with teammates through a git repo; personal ones stay private ([SETUP.md](SETUP.md#3a-team-memory-sync-optional)) |
+| 👥 **Team sync** | Share memories with teammates through a git repo; personal ones stay private ([how to set it up](#team-sync)) |
 | 📒 **Task journal** | Per Jira ticket: current state, next steps, decisions. Created automatically when you open a session on a branch like `feature-PROJ-142` |
 | 🎫 **Jira** | Stories fetched on demand and cached, with a daily sync and search across all stories |
 | 📐 **Project rules** | `CLAUDE.md`, `AGENTS.md`, `.junie/guidelines.md`, `docs/`, agent files, searchable by topic |
@@ -49,6 +49,80 @@ curl -s localhost:8765/health      # → ok
 
 Full install steps: [SETUP.md](SETUP.md). Needs macOS on Apple Silicon, Docker, `uv`, git and
 python3. Jira, ZCode, and Node 24 + pnpm (only for dashboard development) are optional.
+
+## Team sync
+
+Share what your AI tools learned with your teammates. Each person keeps their own ai-memory;
+a shared git repo in the middle carries the **shared** memories, one folder per person.
+
+```
+ your ai-memory                     team git repo                       teammate's ai-memory
+ shared memories ──push──►  memories/alice/<id>.json  ──pull──►  "teammate=alice", read-only
+ "teammate=bob"  ◄──pull──  memories/bob/<id>.json    ◄──push──  shared memories
+ private memories ✗ never leave your Mac
+```
+
+**What is shared**
+
+| | |
+|---|---|
+| ✅ Shared | Every memory, unless it is marked **private** |
+| 🔒 Private | Personal things: how you like the AI to work, your tools, notes about you. The AI saves them with `private=true`; you can switch any memory with the **Shared / Private** button on the Memories tab |
+| ⏳ 10-minute wait | New or edited memories wait 10 min before they are shared, so you can still make them private |
+| 🚫 Never shared | Anything that looks like a password or token; task journals, Jira cache, code index |
+| 👀 Teammates' memories | Read-only for you; they disappear when the owner deletes them or makes them private |
+
+**Step 1 — Create the team repo (once, one person)**
+
+Create an **empty** git repo, e.g. `ai-memory-team`, in Azure DevOps, GitHub or GitLab.
+
+- Its `main` branch must accept **direct pushes** (no "pull request required" rule).
+- Give every teammate **write** access to it.
+
+**Step 2 — Create your token (each person)**
+
+| Where the repo is | Token | Permission |
+|---|---|---|
+| Azure DevOps | User settings → **Personal access tokens** → New | **Code: Read & write** |
+| GitHub | Settings → Developer settings → **Fine-grained tokens** → only the team repo | **Contents: Read and write** |
+
+Copy the token right away: it is shown only once.
+
+**Step 3 — Add 3 lines to your `.env` (each person)**
+
+```bash
+SYNC_REPO_URL=https://dev.azure.com/<org>/<project>/_git/ai-memory-team   # or https://github.com/<org>/ai-memory-team.git
+SYNC_GIT_TOKEN=<your token>   # only here, never inside the URL, never in chat
+SYNC_AUTHOR=<you>             # your folder name: lower-case and unique, e.g. alice
+```
+
+**Step 4 — Check what you share, then start**
+
+1. Open http://localhost:8765/ui#memories → **Mine · shared**. Click **Shared** on anything personal to make it **Private**.
+2. Restart so the new settings are read:
+   ```bash
+   docker compose up -d --force-recreate
+   ```
+3. The first sync runs after ~90 s (then every 30 min), or click **Sync now** on the Memories tab.
+
+**Step 5 — Check it works**
+
+- Dashboard **Health → Team sync** is green, e.g. *"mine: 20 shared, +20 pushed"*.
+- The team repo has a folder `memories/<you>/` with one `.json` file per shared memory.
+
+**If something is wrong** (the message is in **Health → Team sync**)
+
+| Message | Fix |
+|---|---|
+| `Authentication failed` / `401` | Token is wrong, expired, or has no write permission: make a new one (Step 2) |
+| `TF402455` / `protected branch` | The repo's `main` needs a pull request: allow direct pushes (Step 1) |
+| `not found` / `404` | Wrong URL (a space is written `%20`) or you have no access to the repo |
+| `SYNC_AUTHOR must be set` | Add `SYNC_AUTHOR`: lower-case letters, digits, `.` `_` `-` |
+| `off: SYNC_REPO_URL is not set` | Sync is off: add the Step 3 lines and restart |
+
+Good to know: a deleted memory stays in the repo's **git history**. Settings you can change:
+`SYNC_INTERVAL_MINUTES` (default 30, `0` = only the button), `SYNC_GRACE_MINUTES` (default 10),
+`SYNC_BRANCH` (default `main`). More detail: [SETUP.md](SETUP.md#3a-team-memory-sync-optional).
 
 ## Documentation
 
