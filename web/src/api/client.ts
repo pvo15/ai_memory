@@ -67,3 +67,43 @@ export const qs = (params: Record<string, string | number | undefined>) =>
             .filter(([, v]) => v !== undefined && v !== '')
             .map(([k, v]) => [k, String(v)]),
     ).toString();
+
+// ---------------------------------------------------------------- login helpers
+/** Is the ai-memory server answering at all? */
+export async function serverUp(): Promise<boolean> {
+    try {
+        return (await fetch('/health', { cache: 'no-store' })).ok;
+    } catch {
+        return false;
+    }
+}
+
+/** Does the browser have a working login (cookie or saved token)? */
+async function loggedIn(): Promise<boolean> {
+    try {
+        await apiFetch('/api/overview');
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Get a fresh login cookie without reloading: opening /ui is what sets it. */
+export async function silentLogin(): Promise<boolean> {
+    try {
+        await fetch('/ui', { cache: 'no-store', credentials: 'same-origin' });
+    } catch {
+        return false;
+    }
+    return loggedIn();
+}
+
+/** Check a pasted token before saving it: 'ok', 'wrong' or 'offline'. */
+export async function checkToken(token: string): Promise<'ok' | 'wrong' | 'offline'> {
+    try {
+        const res = await fetch('/api/overview', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        return res.ok ? 'ok' : res.status === 401 ? 'wrong' : 'offline';
+    } catch {
+        return 'offline';
+    }
+}

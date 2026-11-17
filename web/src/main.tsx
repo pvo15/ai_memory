@@ -2,9 +2,9 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@ta
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { tokenStore, UnauthorizedError } from './api/client';
+import { silentLogin, tokenStore, UnauthorizedError } from './api/client';
 import { App } from './App';
-import { TokenDialog } from './components/TokenDialog';
+import { TokenDialog, type LoginReason } from './components/TokenDialog';
 import { ToastProvider, TooltipProvider } from './components/ui';
 import './styles.css';
 
@@ -17,20 +17,30 @@ try {
 }
 
 function Root() {
-    // Logged in automatically by the session cookie; the token dialog is only a fallback.
-    const [tokenOpen, setTokenOpen] = useState(false);
-    const [tokenError, setTokenError] = useState('');
+    // Logged in automatically by the session cookie; the dialog is only for when that fails.
+    const [login, setLogin] = useState<LoginReason | null>(null);
 
-    // One QueryClient for the app. Any 401 anywhere -> ask for the token again.
+    // One QueryClient for the app. Any 401: first try a silent re-login (fresh cookie),
+    // and only if that fails show the login dialog.
     const [qc] = useState(() => {
+        let relogging = false;
+        let lastTry = 0;
         const onError = (e: Error) => {
-            if (e instanceof UnauthorizedError) {
-                tokenStore.set(''); // a stale pasted token must not block the cookie login
-                setTokenError('Automatic login failed. Reload the page, or paste MEMORY_TOKEN as a fallback.');
-                setTokenOpen(true);
+            if (!(e instanceof UnauthorizedError) || relogging) return;
+            tokenStore.set(''); // a stale saved token must not block the cookie login
+            if (Date.now() - lastTry < 30_000) {
+                setLogin('failed'); // tried a moment ago: don't loop
+                return;
             }
+            relogging = true;
+            lastTry = Date.now();
+            void silentLogin().then((ok) => {
+                relogging = false;
+                if (ok) void qc.resetQueries();
+                else setLogin('failed');
+            });
         };
-        return new QueryClient({
+        const qc = new QueryClient({
             queryCache: new QueryCache({ onError }),
             mutationCache: new MutationCache({ onError }),
             defaultOptions: {
@@ -41,20 +51,20 @@ function Root() {
                 },
             },
         });
+        return qc;
     });
 
     return (
         <QueryClientProvider client={qc}>
             <TooltipProvider>
                 <ToastProvider>
-                    <App onToken={() => { setTokenError(''); setTokenOpen(true); }} />
+                    <App onToken={() => setLogin('manual')} />
                     <TokenDialog
-                        open={tokenOpen}
-                        error={tokenError}
-                        onSubmit={(t) => {
-                            tokenStore.set(t);
-                            setTokenOpen(false);
-                            setTokenError('');
+                        open={login !== null}
+                        reason={login ?? 'manual'}
+                        onClose={() => setLogin(null)}
+                        onLoggedIn={() => {
+                            setLogin(null);
                             void qc.resetQueries();
                         }}
                     />

@@ -120,7 +120,7 @@ function Header({ poll, setAuto, auto, onToken }: { poll: Poll; auto: boolean; s
             <button className="btn btn-icon" onClick={toggleTheme} title="Toggle light / dark" aria-label="Toggle theme">
                 <Moon size={15} />
             </button>
-            <button className="btn btn-icon" onClick={onToken} title="Change token" aria-label="Change token">
+            <button className="btn btn-icon" onClick={onToken} title="Login" aria-label="Login">
                 <KeyRound size={15} />
             </button>
         </header>
