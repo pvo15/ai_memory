@@ -52,6 +52,51 @@ curl -s localhost:8765/health      # → ok
 Full install steps: [SETUP.md](SETUP.md). Needs macOS on Apple Silicon, Docker, `uv`, git and
 python3. Jira, ZCode, and Node 24 + pnpm (only for dashboard development) are optional.
 
+## First prompts
+
+After `./setup.sh`, **restart** your AI tools (Claude Code, ZCode, Codex, your IDE) so they load
+ai-memory. Then open a chat **in your project folder** and try these, in this order:
+
+| # | Type this | What should happen |
+|---|---|---|
+| 1 | *"Use ai-memory: what tools do you have?"* | It lists `remember`, `recall`, `task_start`, `code_search`, … → connected |
+| 2 | *"Remember: answer me in short, simple English. This is private."* | Saved as **private**: only on your Mac, and every AI tool now knows it |
+| 3 | *"Remember for project my-app: we use pnpm, never npm."* | Saved as a **shared** project fact (teammates get it when team sync is on) |
+| 4 | *"What do you remember about this project?"* | It calls `recall` and shows what it knows |
+| 5 | *"Where is the login form validated?"* | `code_search` finds the code (by meaning with MLX, by names without it) |
+
+**Start a ticket** — put the ticket key in the branch name, then open a **new** chat:
+
+```bash
+git checkout -b feature-PROJ-123
+```
+
+The AI starts with a `<task-journal>` briefing (Jira story, current state, next steps), so you
+don't need to explain the task. A good first prompt:
+
+> *"Summarise the story and the acceptance criteria, then plan the work."*
+
+**While you work**
+
+| When | Say |
+|---|---|
+| You chose X over Y | *"Decision: we sort on the client because the API has no sort parameter"* |
+| Before you stop or switch ticket | *"Checkpoint"* |
+| The ticket is finished | *"Final checkpoint and mark it done"* |
+| Code you don't understand | *"What is this code and which story is it from?"* + paste the code |
+
+More phrases, each with a **Copy** button: the dashboard **Cheat sheet** tab.
+
+**The AI doesn't use ai-memory?**
+
+| Check | Fix |
+|---|---|
+| `curl -s localhost:8765/health` doesn't say `ok` | Start it: `cd ~/Documents/ai-memory && docker compose up -d` |
+| The tool was open during setup | Restart the AI tool |
+| Claude Code: `claude mcp list` doesn't show `ai-memory: … ✔ Connected` | Re-run `./setup.sh` |
+| It is connected but never calls `recall` | Re-run `./setup.sh` (it adds the usage instructions to `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and `~/.qwen/QWEN.md`), or start your prompt with *"Use ai-memory: …"*. Junie: paste `MEMORY_INSTRUCTIONS.md` into `.junie/guidelines.md` |
+| You opened `http://localhost:8765/mcp` in the browser and it says *"not for the browser"* | Normal: that address is only for AI tools (they use your token). Your page is http://localhost:8765/ui |
+
 ## Team sync
 
 Share what your AI tools learned with your teammates. Each person keeps their own ai-memory;

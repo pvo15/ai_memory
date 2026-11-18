@@ -164,7 +164,7 @@ def embed(texts: list[str]) -> np.ndarray:
     return vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
 
 
-_mlx = {"at": 0.0, "up": False}
+_mlx = {"at": 0.0, "up": False, "why": ""}  # why: "stuck" (port open, no answer) or "stopped"
 
 
 def mlx_up() -> bool:
@@ -173,12 +173,15 @@ def mlx_up() -> bool:
         return False
     if time.time() - _mlx["at"] < 10:
         return _mlx["up"]
+    why = ""
     try:
         with urllib.request.urlopen(f"{EMBED_URL}/health", timeout=3) as r:
             up = r.status == 200
-    except Exception:
+    except Exception as e:
         up = False
-    _mlx.update(at=time.time(), up=up)
+        timeout = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
+        why = "stuck" if timeout else "stopped"
+    _mlx.update(at=time.time(), up=up, why=why)
     return up
 
 

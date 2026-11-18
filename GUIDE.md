@@ -233,6 +233,19 @@ docker compose up -d
 A macOS service (`com.aimemory.mlx-embed`): starts at login, restarts on crash, runs from
 `~/.local/share/mlx-embed/` (macOS doesn't let background services read Desktop/Documents).
 
+**Memory rules** (the GPU shares the Mac's RAM with your apps and other local models):
+
+| Rule | Why |
+|---|---|
+| MLX buffer cache limited to 512 MB (`MLX_CACHE_LIMIT_MB`) | Without a limit it grew to 16+ GB over days of indexing, filled the swap and the server got stuck |
+| The Explain model (~4.5 GB) loads only when the Mac has 6 GB free (`LLM_MIN_FREE_GB`) | Otherwise Explain says "Not enough free memory…" instead of pushing the Mac into swap |
+| Watchdog in `run.sh`: no answer to `/health` 3 times in a row → restart | launchd restarts a crashed server, not a stuck one; this restarts it within ~4 min |
+| Health shows the server's memory and the Mac's free memory | "Mac … memory free" turns into a warning below 10% |
+
+Set `MLX_CACHE_LIMIT_MB` / `LLM_MIN_FREE_GB` / `WATCHDOG_EVERY` / `WATCHDOG_FAILS` in the
+LaunchAgent's `EnvironmentVariables` if you need other values. Other local model servers
+(e.g. IDE agents running their own `mlx_lm.server`) use the same RAM: stop the ones you don't use.
+
 | What | Command |
 |---|---|
 | Up? | `curl -s http://127.0.0.1:18765/health` |
@@ -241,8 +254,8 @@ A macOS service (`com.aimemory.mlx-embed`): starts at login, restarts on crash, 
 | Install / update / repair | `scripts/install-mlx.sh` |
 | Turn auto-start off | `launchctl bootout gui/$(id -u)/com.aimemory.mlx-embed` |
 
-The source is `mlx-server/server.py` in this project; after editing it, re-run
-`scripts/install-mlx.sh`.
+The source is `mlx-server/server.py` and `mlx-server/run.sh` in this project; after editing them,
+re-run `scripts/install-mlx.sh` (or copy both to `~/.local/share/mlx-embed/` and run the Restart command).
 
 ### 7.6 Code search & repos
 

@@ -355,15 +355,30 @@ def health(db) -> dict:
         try:
             with urllib.request.urlopen(f"{codesearch.EMBED_URL}/health", timeout=3) as r:
                 m = _json.load(r)
-            add("MLX GPU server", "good", "up · explain model " + ("loaded" if m.get("llm_loaded") else "idle (loads on first Explain)"))
         except Exception:
-            add("MLX GPU server", "good", "up")
+            m = {}
+        mem, parts = m.get("mem") or {}, ["up"]
+        mac = mem.get("mac") or {}
+        if "active_mb" in mem:
+            parts.append(f"uses {(mem['active_mb'] + mem.get('cache_mb', 0)) / 1024:.1f} GB")
+        parts.append("explain model " + ("loaded" if m.get("llm_loaded") else "idle (loads on first Explain)"))
+        if mac:
+            parts.append(f"Mac {mac['free_pct']}% memory free")
+        if mac and mac["free_pct"] < 10:
+            add("MLX GPU server", "warning", " · ".join(parts) + f" — the Mac is almost out of memory (swap "
+                f"{mac.get('swap_used_gb', '?')} GB used): the Explain model won't load. Close other local model "
+                "servers or big apps.")
+        else:
+            add("MLX GPU server", "good", " · ".join(parts))
     elif mlx == "off":
         add("MLX GPU server", "off", ("turned off (MLX=off)" if codesearch.MLX_MODE == "off" else "not installed")
             + " — code search by keywords; Explain AI hidden. Optional, Apple Silicon only: scripts/install-mlx.sh")
+    elif codesearch._mlx.get("why") == "stuck":
+        add("MLX GPU server", "warning", "not answering (stuck) — usually the Mac ran out of memory. Keyword search "
+            "meanwhile; it restarts itself within ~4 min, or now: launchctl kickstart -k gui/$(id -u)/com.aimemory.mlx-embed")
     else:
         add("MLX GPU server", "warning", "not running (it worked before) — keyword search until it is back. "
-            "Restart: launchctl kickstart -k gui/$(id -u)/com.aimemory.mlx-embed")
+            "Start: launchctl kickstart -k gui/$(id -u)/com.aimemory.mlx-embed")
     # Jira
     if not jira.configured():
         add("Jira sync", "off", "not configured")
@@ -515,6 +530,13 @@ async def _stream_explanation(db, body: dict, send, receive=None) -> None:
                 # Closing this connection (Stop) makes the MLX server stop generating.
                 while not halt.is_set() and (chunk := r.read1(256)):
                     loop.call_soon_threadsafe(q.put_nowait, chunk)
+        except urllib.error.HTTPError as e:  # e.g. 503: not enough free memory -- show the server's reason
+            try:
+                msg = json.loads(e.read() or b"{}").get("error") or str(e)
+            except Exception:
+                msg = str(e)
+            if not halt.is_set():
+                loop.call_soon_threadsafe(q.put_nowait, f"\n\n_{msg}_".encode())
         except Exception as e:
             if not halt.is_set():
                 loop.call_soon_threadsafe(q.put_nowait, f"\n\n_Local model unavailable: {e}_".encode())

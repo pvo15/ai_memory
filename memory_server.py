@@ -302,6 +302,30 @@ def _deny(status: int, msg: bytes):
             {"type": "http.response.body", "body": msg}]
 
 
+def _browser_help(path: str):
+    """A person opened an address meant for programs (/mcp, /context, /api) in the browser.
+    Explain it instead of a bare 401. Still no access, and nothing from the request is echoed."""
+    if path.startswith("/api/"):
+        what = "This is dashboard data. Open the dashboard first: it logs this browser in automatically."
+    elif path == "/context":
+        what = "This address is used by the session hook of your AI tools, not by the browser."
+    else:
+        what = ("This address is for AI tools (MCP), not for the browser. Claude Code, GLM and Codex "
+                "connect here with your token; <code>./setup.sh</code> set that up.")
+    body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>ai-memory</title><style>body{{font:15px/1.5 system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:0 16px;color:#222;background:#fafafa}}
+@media(prefers-color-scheme:dark){{body{{color:#ddd;background:#161616}}a{{color:#8ab4ff}}}}code{{font-size:13px}}
+a.btn{{display:inline-block;margin-top:8px;padding:8px 14px;border-radius:8px;background:#3b6fd8;color:#fff;text-decoration:none}}</style></head>
+<body><h2>ai-memory</h2><p>{what}</p><p><a class="btn" href="/ui">Open the dashboard</a></p>
+<p style="opacity:.7;font-size:13px">Check that your AI tools are connected: run <code>claude mcp list</code> in Terminal;
+it should show <code>ai-memory: … ✔ Connected</code>.</p></body></html>"""
+    return [{"type": "http.response.start", "status": 401,
+             "headers": [(b"content-type", b"text/html; charset=utf-8"), (b"cache-control", b"no-store"),
+                         (b"x-content-type-options", b"nosniff"), (b"x-frame-options", b"DENY"),
+                         (b"content-security-policy", b"default-src 'none'; style-src 'unsafe-inline'")]},
+            {"type": "http.response.body", "body": body.encode()}]
+
+
 class BearerAuth:
     """Who may call the server:
     - AI tools (MCP /mcp, hook /context, API): `Authorization: Bearer <MEMORY_TOKEN>`.
@@ -361,7 +385,8 @@ class BearerAuth:
                             await send(m)
                         return
             if self.token and not (bearer_ok or cookie_ok):
-                for m in _deny(401, b"unauthorized"):
+                browser = scope.get("method") == "GET" and "text/html" in h.get("accept", "")
+                for m in (_browser_help(path) if browser else _deny(401, b"unauthorized")):
                     await send(m)
                 return
             if scope["path"] == "/context":

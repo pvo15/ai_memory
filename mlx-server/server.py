@@ -6,11 +6,18 @@ which one it talks to:
     POST /api/embed   {"input": ["text", ...]}  ->  {"embeddings": [[...], ...]}
     POST /api/generate {"prompt": "...", "system": "...", "max_tokens": 700}
                       -> plain text, STREAMED piece by piece (local chat model)
-    GET  /health      -> {"ok": true, "model": "...", "llm_loaded": bool}
+    GET  /health      -> {"ok": true, "model": "...", "llm_loaded": bool, "mem": {...}}
 
 The chat model (default Qwen2.5-Coder-7B-Instruct, 4-bit, ~4 GB RAM) is loaded only on
 the first /api/generate call and freed again after LLM_IDLE_SECONDS without use, so it
 costs nothing while unused. One GPU job runs at a time (embedding waits during generation).
+
+Memory (24 GB Macs share RAM between the GPU, apps and other local models):
+  - MLX keeps freed GPU buffers in a cache for reuse -- by default up to ~2/3 of RAM. Over
+    days of indexing that cache grew to 16+ GB, filled the swap and the server got stuck.
+    MLX_CACHE_LIMIT_MB (default 512) keeps it small; the cache is also cleared after each answer.
+  - The chat model (~4.5 GB) is only loaded when the Mac has LLM_MIN_FREE_GB (default 6) free;
+    otherwise /api/generate answers 503 with a clear message instead of pushing the Mac into swap.
 
 How Qwen3-Embedding works (it's a Qwen3 LLM trained for embeddings):
   1. tokenize the text and append the end-of-text token
@@ -24,6 +31,8 @@ Run:  ./mlx-server/run.sh     (needs a Python with mlx-lm installed)
 import gc
 import json
 import os
+import re
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,6 +46,9 @@ MODEL_ID = os.environ.get("MCS_MLX_MODEL", "mlx-community/Qwen3-Embedding-0.6B-4
 HOST = os.environ.get("MCS_MLX_HOST", "127.0.0.1")  # localhost only
 PORT = int(os.environ.get("MCS_MLX_PORT", "18765"))
 MAX_TOKENS = 2048
+CACHE_LIMIT_MB = int(os.environ.get("MLX_CACHE_LIMIT_MB", "512"))
+LLM_MIN_FREE_GB = float(os.environ.get("LLM_MIN_FREE_GB", "6"))
+mx.set_cache_limit(CACHE_LIMIT_MB * 1024 * 1024)  # see "Memory" above
 
 print(f"Loading {MODEL_ID} (downloads to ~/.cache/huggingface on first run)…", flush=True)
 model, tokenizer = load(MODEL_ID)
@@ -53,9 +65,41 @@ _gen = {"current": 0}  # id of the newest generation request
 _gen_lock = Lock()
 
 
+_mac = {"at": 0.0, "v": {}}
+
+
+def mac_memory() -> dict:
+    """The Mac's free memory as macOS itself reports it (cached 5 s). {} if unknown."""
+    if time.time() - _mac["at"] < 5:
+        return _mac["v"]
+    v: dict = {}
+    try:
+        out = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True, timeout=5).stdout
+        total = int(re.search(r"has (\d+) \(", out).group(1))
+        pct = int(re.search(r"free percentage: (\d+)%", out).group(1))
+        v = {"total_gb": round(total / 2**30, 1), "free_pct": pct, "free_gb": round(total * pct / 100 / 2**30, 1)}
+        sw = subprocess.run(["/usr/sbin/sysctl", "-n", "vm.swapusage"], capture_output=True, text=True, timeout=5).stdout
+        if m := re.search(r"used = ([\d.]+)M", sw):
+            v["swap_used_gb"] = round(float(m.group(1)) / 1024, 1)
+    except Exception:
+        pass
+    _mac.update(at=time.time(), v=v)
+    return v
+
+
+class LowMemory(Exception):
+    """Not enough free memory on the Mac to load the chat model safely."""
+
+
 def get_llm():
     with _llm_load_lock:
         if _llm["model"] is None:
+            m = mac_memory()
+            if m and m["free_gb"] < LLM_MIN_FREE_GB:
+                raise LowMemory(
+                    f"Not enough free memory for the local explain model: the Mac has {m['free_gb']} GB free "
+                    f"({m['free_pct']}%), it needs about {LLM_MIN_FREE_GB:g} GB. Close other local model servers "
+                    "or big apps, then try again.")
             t0 = time.time()
             print(f"loading chat model {LLM_ID}…", flush=True)
             _llm["model"], _llm["tok"] = load(LLM_ID)
@@ -113,7 +157,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._send(200, {"ok": True, "model": MODEL_ID, "llm": LLM_ID, "llm_loaded": _llm["model"] is not None})
+            self._send(200, {"ok": True, "model": MODEL_ID, "llm": LLM_ID, "llm_loaded": _llm["model"] is not None,
+                             "mem": {"active_mb": round(mx.get_active_memory() / 2**20),
+                                     "cache_mb": round(mx.get_cache_memory() / 2**20),
+                                     "cache_limit_mb": CACHE_LIMIT_MB, "mac": mac_memory()}})
         else:
             self._send(404, {"error": "not found"})
 
@@ -154,12 +201,17 @@ class Handler(BaseHTTPRequestHandler):
                 break
             n += 1
         _llm["last"] = time.time()
+        with gpu_lock:
+            mx.clear_cache()  # give the answer's working memory back right away
         print(f"generated {n} tokens in {time.time() - t0:.1f}s ({why})", flush=True)
 
     def do_POST(self) -> None:
         if self.path == "/api/generate":
             try:
                 self.generate()
+            except LowMemory as err:  # nothing was sent yet: answer with a clear reason
+                print(f"generate refused: {err}", flush=True)
+                self._send(503, {"error": str(err)})
             except Exception as err:
                 try:
                     self._send(500, {"error": str(err)})
