@@ -54,8 +54,9 @@ An AI session is like a person with no long-term memory:
 
 **Why MLX runs outside Docker:** Docker on a Mac can't use the GPU. The GPU turns code and
 questions into numbers (*embeddings*) and runs the local *explain* model; Docker stores the
-results and does the fast maths. If MLX is off, everything still works — code search just
-matches by **names** instead of by meaning.
+results and does the fast maths. If MLX is off (not installed, Intel Mac, or `MLX=off`), everything
+still works — code search matches by **names/keywords**, the Explain AI is hidden, and health
+shows "MLX off" (grey, not an error). When MLX starts later, missing vectors are added automatically.
 
 ---
 
@@ -313,6 +314,7 @@ Edit `.env`, then `docker compose up -d`. Full list with comments: `.env.example
 | `MEMORY_TOKEN` | generated | Protects the server (AI tools send it) |
 | `PROJECTS_DIR` | `~/Desktop/projects` | Folder with your repos (read-only) |
 | `CODE_PROJECTS` | — | Repos to index, comma-separated |
+| `MLX` | `auto` | `auto` = use the MLX GPU server when it runs; `off` = never (keyword code search, no Explain AI) |
 | `JIRA_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | — | Your Jira access (optional) |
 | `JIRA_SYNC_PROJECT` / `_DAYS` / `_INTERVAL_HOURS` / `_TYPES` | — (no daily sync) / `90` / `24` / business types | What and how often to sync |
 | `AUTO_TASK_PREFIXES` | = `JIRA_SYNC_PROJECT` | Ticket prefixes that get a journal automatically from the branch (`*` = any) |

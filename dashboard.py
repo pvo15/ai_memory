@@ -126,7 +126,8 @@ def overview(db) -> dict:
     return {
         "counts": counts,
         "server": {"uptime_s": int(time.time() - STARTED), "db_bytes": db_size},
-        "mlx": {"up": codesearch.mlx_up(), "url": codesearch.EMBED_URL},
+        "mlx": {"up": codesearch.mlx_up(), "state": codesearch.mlx_state(db), "mode": codesearch.MLX_MODE,
+                "url": codesearch.EMBED_URL},
         "jira": {"configured": jira.configured(), "last_sync": last_sync or None,
                  "last_result": state.get("jira_last_sync_result", ""),
                  "next_sync": (last_sync + jira.SYNC_INTERVAL_H * 3600) if last_sync and jira.SYNC_INTERVAL_H > 0 else None},
@@ -349,12 +350,20 @@ def health(db) -> dict:
     add("Database", "good" if _qc["result"] == "ok" else "critical",
         f"integrity {_qc['result']} · {os.path.getsize(os.environ.get('MEMORY_DB', '/data/memory.db')) / 1e6:.1f} MB")
     # MLX server (GPU): embeddings + local explain model
-    try:
-        with urllib.request.urlopen(f"{codesearch.EMBED_URL}/health", timeout=3) as r:
-            m = _json.load(r)
-        add("MLX GPU server", "good", "up · explain model " + ("loaded" if m.get("llm_loaded") else "idle (loads on first Explain)"))
-    except Exception:
-        add("MLX GPU server", "critical", "down — code search uses names only; Explain unavailable. Fix: scripts/install-mlx.sh")
+    mlx = codesearch.mlx_state(db)
+    if mlx == "up":
+        try:
+            with urllib.request.urlopen(f"{codesearch.EMBED_URL}/health", timeout=3) as r:
+                m = _json.load(r)
+            add("MLX GPU server", "good", "up · explain model " + ("loaded" if m.get("llm_loaded") else "idle (loads on first Explain)"))
+        except Exception:
+            add("MLX GPU server", "good", "up")
+    elif mlx == "off":
+        add("MLX GPU server", "off", ("turned off (MLX=off)" if codesearch.MLX_MODE == "off" else "not installed")
+            + " — code search by keywords; Explain AI hidden. Optional, Apple Silicon only: scripts/install-mlx.sh")
+    else:
+        add("MLX GPU server", "warning", "not running (it worked before) — keyword search until it is back. "
+            "Restart: launchctl kickstart -k gui/$(id -u)/com.aimemory.mlx-embed")
     # Jira
     if not jira.configured():
         add("Jira sync", "off", "not configured")
@@ -484,6 +493,11 @@ async def _stream_explanation(db, body: dict, send, receive=None) -> None:
                             (b"x-accel-buffering", b"no")]})
     if not a.get("location"):
         await send({"type": "http.response.body", "body": b"Couldn't find this code in the indexed repo.", "more_body": False})
+        return
+    if not codesearch.mlx_up():
+        await send({"type": "http.response.body", "more_body": False,
+                    "body": b"The local AI explanation needs the MLX GPU server (Apple Silicon). "
+                            b"Location, git blame and the Jira story above work without it."})
         return
     prompt = snippet.to_markdown(a, story_chars=1800)
     q: asyncio.Queue = asyncio.Queue()

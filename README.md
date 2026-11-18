@@ -35,8 +35,10 @@ Your data is one SQLite file and never leaves your Mac.
         backups/ (daily copies)          macOS LaunchAgent, starts at login
 ```
 
-Docker on a Mac can't use the GPU, so the MLX server runs natively. If it is off, everything
-still works; code search then matches names instead of meaning.
+Docker on a Mac can't use the GPU, so the MLX server runs natively. **MLX is optional:** without
+it (Intel Mac, not installed, or `MLX=off` in `.env`) everything still works — code search and
+file search use names/keywords, the local Explain AI is hidden, and the dashboard shows
+"MLX off" instead of an error. Install it later and the meaning vectors are added automatically.
 
 ## Quick start
 

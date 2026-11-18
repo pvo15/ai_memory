@@ -1,7 +1,7 @@
 import { ClipboardPaste, FileCode2, Lightbulb, Search, TextSearch } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useCodeSearch } from '../api/hooks';
+import { useCodeSearch, useOverview } from '../api/hooks';
 import type { CodeResult } from '../api/types';
 import { ExplainModal } from '../components/Explain';
 import { FileSearch } from '../components/FileSearch';
@@ -57,6 +57,7 @@ function Result({ r, onExplain }: { r: CodeResult; onExplain: (code: string) => 
 }
 
 export function CodePage() {
+    const meaning = useOverview(false).data?.mlx.state === 'up'; // without MLX: names/keywords only
     const [text, setText] = useState('');
     const [path, setPath] = useState('');
     const [submitted, setSubmitted] = useState({ q: '', path: '' });
@@ -117,7 +118,7 @@ export function CodePage() {
         <div className="page" ref={results} onMouseUp={onSelect} onKeyUp={onSelect}>
             <div className="segmented" role="tablist" aria-label="Search mode">
                 <button role="tab" aria-selected={mode === 'code'} onClick={() => switchMode('code')}>
-                    <TextSearch size={14} /> Code <span className="muted small">by meaning or name</span>
+                    <TextSearch size={14} /> Code <span className="muted small">{meaning ? 'by meaning or name' : 'by name / keywords'}</span>
                 </button>
                 <button role="tab" aria-selected={mode === 'files'} onClick={() => switchMode('files')}>
                     <FileCode2 size={14} /> Files <span className="muted small">by file path</span>
@@ -136,7 +137,7 @@ export function CodePage() {
                     <input
                         className="input input-grow"
                         type="search"
-                        placeholder='By meaning or name — "where are auth headers added", "useAuthStore"'
+                        placeholder={meaning ? 'By meaning or name — "where are auth headers added", "useAuthStore"' : 'By name or keywords — "useAuthStore", "auth headers"'}
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         aria-label="Code search"

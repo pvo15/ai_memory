@@ -17,7 +17,8 @@ WHY EACH PART
     normalised numpy matrix, so a search is a single matrix-vector product (~1 ms).
   - Incremental + resumable: only changed files are re-embedded, and each batch is
     committed, so an interrupted index continues where it stopped.
-  - If the MLX server is down, search falls back to keywords only (still useful).
+  - Without MLX (Intel Mac, not installed, or MLX=off) the index is built WITHOUT vectors and
+    search uses keywords only. When MLX appears later, the missing vectors are added.
 """
 import hashlib
 import json
@@ -35,6 +36,8 @@ import numpy as np
 REPOS_DIR = os.environ.get("REPOS_DIR", "/repos")
 EMBED_URL = os.environ.get("EMBED_URL", "http://host.docker.internal:18765")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")
+# auto = use the MLX GPU server when it answers; off = never (Intel Mac / no GPU server)
+MLX_MODE = "off" if os.environ.get("MLX", "auto").strip().lower() in ("off", "0", "false", "no") else "auto"
 CODE_PROJECTS = [p.strip() for p in os.environ.get("CODE_PROJECTS", "").split(",") if p.strip()]
 REINDEX_EVERY_S = int(os.environ.get("CODE_REINDEX_SECONDS", "600"))
 
@@ -161,12 +164,34 @@ def embed(texts: list[str]) -> np.ndarray:
     return vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
 
 
+_mlx = {"at": 0.0, "up": False}
+
+
 def mlx_up() -> bool:
+    """Is the MLX GPU server usable right now? Cached 10 s, so a missing server costs nothing."""
+    if MLX_MODE == "off":
+        return False
+    if time.time() - _mlx["at"] < 10:
+        return _mlx["up"]
     try:
         with urllib.request.urlopen(f"{EMBED_URL}/health", timeout=3) as r:
-            return r.status == 200
+            up = r.status == 200
     except Exception:
-        return False
+        up = False
+    _mlx.update(at=time.time(), up=up)
+    return up
+
+
+def mlx_state(db) -> str:
+    """'up'; 'down' = it worked before (vectors exist) but doesn't answer now;
+    'off' = turned off (MLX=off) or never installed -- a normal mode, not an error."""
+    if MLX_MODE == "off":
+        return "off"
+    if mlx_up():
+        return "up"
+    with closing(db()) as con:
+        had = con.execute("SELECT 1 FROM code_chunks WHERE vec IS NOT NULL LIMIT 1").fetchone()
+    return "down" if had else "off"
 
 
 # ---------------------------------------------------------------- index
@@ -182,9 +207,7 @@ def index_project(db, project: str, force: bool = False) -> dict:
         return {"error": "already indexing"}
     st = _status[project] = {"state": "indexing", "started": time.time(), "done": 0, "total": 0}
     try:
-        if not mlx_up():
-            raise RuntimeError(f"MLX embedding server not reachable at {EMBED_URL} "
-                               "(it auto-starts at login; restart: launchctl kickstart -k gui/$(id -u)/com.aimemory.mlx-embed; or re-run scripts/install-mlx.sh)")
+        use_vec = mlx_up()  # no MLX: index for keyword search only, vectors are added later
         root = os.path.join(REPOS_DIR, project)
         files = list_files(project)
         with closing(db()) as con:
@@ -218,7 +241,7 @@ def index_project(db, project: str, force: bool = False) -> dict:
                             size += len(item[2])
                         if group and (item is None or size >= BATCH):
                             j.check()  # Stop pressed? end here; saved batches stay saved
-                            _embed_and_store(db, project, group)
+                            _embed_and_store(db, project, group, use_vec)
                             st["done"] += size
                             j.progress = f"{st['done']}/{st['total']} chunks"
                             group, size = [], 0
@@ -229,10 +252,12 @@ def index_project(db, project: str, force: bool = False) -> dict:
                           changed=len(pending), removed=len(removed),
                           error=f"stopped by user after {st['done']}/{st['total']} chunks (next run continues)")
                 return st
+        added = _add_missing_vectors(db, project) if mlx_up() else 0
         with _cache_lock:
             _cache.pop(project, None)
         st.update(state="ready", finished=time.time(), files=len(files),
-                  changed=len(pending), removed=len(removed))
+                  changed=len(pending), removed=len(removed), vectors_added=added,
+                  keyword_only=not mlx_up())
         return st
     except Exception as e:
         st.update(state="error", error=str(e), finished=time.time())
@@ -248,19 +273,49 @@ def _delete_file(con, project: str, f: str) -> None:
     con.execute("DELETE FROM code_files WHERE project=? AND file=?", (project, f))
 
 
-def _embed_and_store(db, project: str, group: list) -> None:
+def _embed_and_store(db, project: str, group: list, use_vec: bool = True) -> None:
     flat = [(f, c) for f, _, chunks in group for c in chunks]
-    vecs = embed([f"File: {f}\n\n{c[2][:6000]}" for f, c in flat]) if flat else []
+    vecs: list = [None] * len(flat)
+    if use_vec and flat:
+        try:
+            vecs = list(embed([f"File: {f}\n\n{c[2][:6000]}" for f, c in flat]))
+        except Exception:  # MLX went away mid-run: store for keyword search, vectors come later
+            _mlx.update(at=time.time(), up=False)
     with closing(db()) as con, con:  # one transaction per batch = resumable
         for f, sha, _ in group:
             _delete_file(con, project, f)
         for (f, (s, e, text)), v in zip(flat, vecs):
             cur = con.execute("INSERT INTO code_chunks(project,file,start_line,end_line,text,vec) "
-                              "VALUES (?,?,?,?,?,?)", (project, f, s, e, text, v.astype(np.float16).tobytes()))
+                              "VALUES (?,?,?,?,?,?)", (project, f, s, e, text, None if v is None else v.astype(np.float16).tobytes()))
             con.execute("INSERT INTO code_fts(rowid, project, file, words) VALUES (?,?,?,?)",
                         (cur.lastrowid, project, f, words(text, f)))
         for f, sha, _ in group:
             con.execute("INSERT OR REPLACE INTO code_files(project,file,sha) VALUES (?,?,?)", (project, f, sha))
+
+
+def _add_missing_vectors(db, project: str) -> int:
+    """MLX is up: embed chunks that were indexed without it (keyword-only). Resumable per batch."""
+    with closing(db()) as con:
+        todo = con.execute("SELECT id, file, text FROM code_chunks WHERE project=? AND vec IS NULL",
+                           (project,)).fetchall()
+    if not todo:
+        return 0
+    import jobs
+    done = 0
+    try:
+        with jobs.job("code_index", f"Add meaning vectors to {project} ({len(todo)} chunks)", "auto") as j:
+            for i in range(0, len(todo), BATCH):
+                j.check()
+                part = todo[i:i + BATCH]
+                vecs = embed([f"File: {r['file']}\n\n{r['text'][:6000]}" for r in part])
+                with closing(db()) as con, con:
+                    con.executemany("UPDATE code_chunks SET vec=? WHERE id=?",
+                                    [(v.astype(np.float16).tobytes(), r["id"]) for r, v in zip(part, vecs)])
+                done += len(part)
+                j.progress = f"{done}/{len(todo)} chunks"
+    except Exception:
+        pass  # stopped, or MLX went away: the rest is added at a later run
+    return done
 
 
 def _matrix(db, project: str):
@@ -292,7 +347,7 @@ def search(db, query: str, project: str, path_filter: str = "", limit: int = 6, 
     ranked: dict[int, float] = {}
     sims: dict[int, float] = {}
 
-    m = _matrix(db, project)
+    m = _matrix(db, project) if mlx_up() else None
     if m is not None:
         try:
             qv = embed([QUERY_INSTRUCT + query])[0]
@@ -307,6 +362,8 @@ def search(db, query: str, project: str, path_filter: str = "", limit: int = 6, 
                     sims[int(ids[i])] = float(s[i])
         except Exception as e:
             note = f"_Meaning search unavailable ({e.__class__.__name__}: MLX server down?) — keyword results only._"
+    elif MLX_MODE == "off" or not mlx_up():
+        note = "_Keyword search only (MLX GPU server off)._"
     else:
         note = "_No vectors yet (index not built) — keyword results only._"
 
@@ -569,7 +626,7 @@ def register(mcp, db) -> None:
             if st.get("error"):
                 last += f"\nError: {st['error']}"
         return (f"{p}: {files} files, {chunks} chunks indexed. MLX server: "
-                f"{'up' if mlx_up() else 'DOWN'} ({EMBED_URL}).{last}")
+                f"{'up' if mlx_up() else 'off (keyword search only)'} ({EMBED_URL}).{last}")
 
 
 def start_scheduler(db) -> None:
@@ -580,21 +637,21 @@ def start_scheduler(db) -> None:
 
     def loop():
         time.sleep(30)
-        warned = False
+        was_up = None
         while True:
-            if mlx_up():
-                warned = False
-                for p in CODE_PROJECTS:
-                    if os.path.isdir(os.path.join(REPOS_DIR, p)):
-                        st = index_project(db, p)
-                        if st.get("changed"):
-                            print(f"code auto-index {p}: {st['changed']} changed files, "
-                                  f"{st['done']} chunks embedded", flush=True)
-                        elif st.get("state") == "error":
-                            print(f"code auto-index {p} failed: {st.get('error')}", flush=True)
-            elif not warned:
-                print("code auto-index: MLX server down, waiting (keyword search still works)", flush=True)
-                warned = True
+            up = mlx_up()
+            if up != was_up:
+                print("code auto-index: " + ("MLX up, meaning search on" if up else
+                      "keyword search only (MLX " + ("turned off" if MLX_MODE == "off" else "not running") + ")"), flush=True)
+                was_up = up
+            for p in CODE_PROJECTS:
+                if os.path.isdir(os.path.join(REPOS_DIR, p)):
+                    st = index_project(db, p)
+                    if st.get("changed") or st.get("vectors_added"):
+                        print(f"code auto-index {p}: {st.get('changed', 0)} changed files, "
+                              f"{st.get('done', 0)} chunks indexed, {st.get('vectors_added', 0)} vectors added", flush=True)
+                    elif st.get("state") == "error":
+                        print(f"code auto-index {p} failed: {st.get('error')}", flush=True)
             time.sleep(REINDEX_EVERY_S)
 
     threading.Thread(target=loop, name="code-auto-index", daemon=True).start()

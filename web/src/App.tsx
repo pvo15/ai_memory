@@ -98,7 +98,11 @@ function Header({ poll, setAuto, auto, onToken }: { poll: Poll; auto: boolean; s
             ) : (
                 <StatusPill health="good">server · up {o ? duration(o.server.uptime_s) : '…'}</StatusPill>
             )}
-            {o && <StatusPill health={o.mlx.up ? 'good' : 'critical'}>{o.mlx.up ? 'MLX up' : 'MLX down'}</StatusPill>}
+            {o && (
+                <StatusPill health={o.mlx.state === 'up' ? 'good' : o.mlx.state === 'down' ? 'warning' : 'off'}>
+                    {o.mlx.state === 'up' ? 'MLX up' : o.mlx.state === 'down' ? 'MLX down' : 'MLX off'}
+                </StatusPill>
+            )}
             {o && (
                 <StatusPill health={!o.jira.configured ? 'off' : o.jira.last_sync ? 'good' : 'warning'}>
                     {o.jira.configured ? `Jira · synced ${ago(o.jira.last_sync)}` : 'Jira off'}

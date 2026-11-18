@@ -86,7 +86,7 @@ export function OverviewPage({ poll }: { poll: Poll }) {
                                 <td>
                                     {codeStatus}
                                     <br />
-                                    <span className="muted">auto every 10 min · MLX {o.mlx.up ? 'up' : 'DOWN'}</span>
+                                    <span className="muted">auto every 10 min · {o.mlx.state === 'up' ? 'meaning + keyword search (MLX up)' : 'keyword search only (MLX ' + (o.mlx.state === 'down' ? 'down' : 'off') + ')'}</span>
                                 </td>
                                 <td><JobButton name="code_index" label="Re-index" job={jobs.code_index} /></td>
                             </tr>

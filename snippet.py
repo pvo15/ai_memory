@@ -84,6 +84,8 @@ def locate(db, project: str, snippet: str) -> dict | None:
             return best
 
     # Fallback: meaning search with the code itself (document-to-document similarity).
+    if not codesearch.mlx_up():
+        return None  # meaning fallback needs the MLX GPU server
     try:
         m = codesearch._matrix(db, project)
         if m is None:

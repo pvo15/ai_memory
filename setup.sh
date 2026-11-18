@@ -43,7 +43,7 @@ ask() {  # ask "Question" default  -> echo answer
 say "1/9 Checking prerequisites"
 missing=0
 if [[ "$(uname -s)" != "Darwin" ]]; then warn "This setup is written for macOS."; fi
-if [[ "$(uname -m)" != "arm64" ]]; then warn "Not Apple Silicon: code search will work by names only (no MLX)."; fi
+if [[ "$(uname -m)" != "arm64" ]]; then warn "Not Apple Silicon: MLX is skipped — code search by names/keywords, no Explain AI."; fi
 for t in git python3 curl openssl; do
   command -v "$t" >/dev/null || { warn "missing: $t"; missing=1; }
 done
@@ -98,7 +98,13 @@ fi
 # ---------------------------------------------------------------- 3. MLX (GPU, outside Docker)
 say "3/9 MLX server (Mac GPU: code-search meaning + local 'explain' model)"
 mkdir -p "$HOME/Library/Logs"; touch "$HOME/Library/Logs/mlx-embed.log"   # Docker mounts this file
-"$DIR/scripts/install-mlx.sh" || warn "MLX not running — code search falls back to names. Re-run scripts/install-mlx.sh later."
+if [[ "$(uname -m)" != "arm64" ]] || [ "$(env_get MLX)" = "off" ]; then
+  # No Apple GPU (or turned off): skip it. Everything works; code search uses names/keywords, no Explain AI.
+  [ -n "$(env_get MLX)" ] || env_set MLX off
+  echo "MLX: off — code search by names/keywords, Explain AI hidden (set MLX=auto in .env to use it)"
+else
+  "$DIR/scripts/install-mlx.sh" || warn "MLX not running — code search uses names/keywords until it runs. Re-run scripts/install-mlx.sh later, or set MLX=off in .env."
+fi
 
 # ---------------------------------------------------------------- 4. container
 say "4/9 Building and starting ai-memory (Docker)"

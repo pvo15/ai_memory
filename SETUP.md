@@ -159,7 +159,7 @@ macOS + Apple Silicon ── Docker ── uv (mlx-lm) ── git/python3 ──
 
 | Not available? | What still works |
 |---|---|
-| Intel Mac / no MLX | Everything except "meaning" code search and the local *Explain* AI (code search uses names) |
+| Intel Mac / no MLX | Everything except "meaning" code search and the local *Explain* AI: code and file search use names/keywords, the Explain AI card is hidden, health shows "MLX off". `setup.sh` sets `MLX=off` on Intel Macs |
 | No Jira token | Everything except stories and the Jira "why" (git commit messages still give reasons) |
 | No Claude Code | Use any other MCP client (GLM, Codex, Qwen) |
 

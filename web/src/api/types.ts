@@ -27,7 +27,8 @@ export interface Overview {
         commits_keyed: number;
     };
     server: { uptime_s: number; db_bytes: number };
-    mlx: { up: boolean; url: string };
+    /** state: 'up' | 'down' (worked before, not answering) | 'off' (MLX=off or not installed: keyword search). */
+    mlx: { up: boolean; state: 'up' | 'down' | 'off'; mode: 'auto' | 'off'; url: string };
     jira: { configured: boolean; last_sync: number | null; last_result: string; next_sync: number | null };
     backup: { next: number; tz: string; count: number };
     code: { projects: string[]; status: Record<string, CodeIndexStatus> };

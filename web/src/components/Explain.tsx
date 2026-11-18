@@ -5,13 +5,26 @@ import { FileSearch, GitCommitHorizontal, Lightbulb, Loader2, Sparkles, Square, 
 import { useEffect, useRef, useState } from 'react';
 
 import { apiStream } from '../api/client';
-import { useExplain } from '../api/hooks';
+import { useExplain, useOverview } from '../api/hooks';
 import type { Explanation } from '../api/types';
 import { ago } from '../lib/format';
 import { Markdown } from './Markdown';
 import { Card, Empty, Tag } from './ui';
 
-function AiExplanation({ code, ready, autoStart }: { code: string; ready: boolean; autoStart: boolean }) {
+/** The local AI card exists only when the MLX GPU server is running. */
+function AiExplanation(props: { code: string; ready: boolean; autoStart: boolean }) {
+    const mlx = useOverview(false).data?.mlx.state;
+    if (mlx === 'off') return null; // not installed / turned off: the facts above are the whole answer
+    if (mlx === 'down')
+        return (
+            <Card title="Explanation · local AI on your GPU" icon={<Sparkles size={14} />}>
+                <Empty>The MLX GPU server is not running right now, so the AI explanation is unavailable. Everything above still works.</Empty>
+            </Card>
+        );
+    return <AiExplanationRun {...props} />;
+}
+
+function AiExplanationRun({ code, ready, autoStart }: { code: string; ready: boolean; autoStart: boolean }) {
     const [text, setText] = useState('');
     const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
     const abort = useRef<AbortController | null>(null);
