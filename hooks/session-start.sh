@@ -20,7 +20,7 @@ TOKEN="$(grep '^MEMORY_TOKEN=' "$DIR/.env" 2>/dev/null | cut -d= -f2)"
 # Read stdin without hanging if the client keeps it open (wait at most 1s).
 INPUT=""
 [ -t 0 ] || IFS= read -r -d '' -t 1 INPUT || true
-CWD="$(printf '%s' "$INPUT" | /usr/bin/python3 -c 'import sys,json; print(json.load(sys.stdin).get("cwd",""))' 2>/dev/null)"
+CWD="$(printf '%s' "$INPUT" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("cwd",""))' 2>/dev/null)"
 [ -n "$CWD" ] || CWD="$PWD"
 
 BRANCH="$(git -C "$CWD" branch --show-current 2>/dev/null)"
@@ -35,7 +35,7 @@ BRIEF="$(curl -s -m 3 -G "$URL/context" \
 [ -n "$BRIEF" ] || exit 0
 
 if [ "$FORMAT" = json ]; then
-  printf '%s' "$BRIEF" | /usr/bin/python3 -c 'import sys,json; print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": sys.stdin.read()}}))'
+  printf '%s' "$BRIEF" | python3 -c 'import sys,json; print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": sys.stdin.read()}}))'
 else
   printf '%s\n' "$BRIEF"
 fi

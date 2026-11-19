@@ -52,6 +52,40 @@ curl -s localhost:8765/health      # → ok
 Full install steps: [SETUP.md](SETUP.md). Needs macOS on Apple Silicon, Docker, `uv`, git and
 python3. Jira, ZCode, and Node 24 + pnpm (only for dashboard development) are optional.
 
+## Nix
+
+A flake builds and runs the server and the dashboard without Docker (the optional MLX server is not
+included).
+
+```bash
+nix build                                   # server + dashboard bundle -> ./result/bin/ai-memory
+MEMORY_TOKEN=$(openssl rand -hex 24) nix run  # http://127.0.0.1:8765/ui
+nix develop                                 # Python deps, Node, pnpm, git
+```
+
+Defaults set by the wrapper: it listens on `127.0.0.1`, keeps the database and backups under
+`$XDG_DATA_HOME/ai-memory` (`~/.local/share/ai-memory`) and sets `MLX=off`. Override with
+`MEMORY_HOST`, `MEMORY_PORT`, `MEMORY_DB`, `BACKUP_DIR`. After changing `web/pnpm-lock.yaml`, update
+the `hash` in `nix/web.nix`.
+
+A Home Manager module runs the server as a user service (systemd; launchd on macOS) and exposes
+`mcpUrl` and `hookCommand` for wiring up agents. The token is read from a file at service start,
+so it never enters the Nix store:
+
+```nix
+{
+  imports = [ inputs.ai-memory.homeManagerModules.default ];
+  services.ai-memory = {
+    enable = true;
+    tokenFile = "/run/secrets/ai-memory-token";   # a file holding only the token
+    environment = { PROJECTS_DIR = "/home/me/src"; CODE_PROJECTS = "app,api"; };
+    # environmentFile = "/run/secrets/ai-memory-env";  # JIRA_API_TOKEN, SYNC_GIT_TOKEN, ...
+  };
+}
+```
+
+`services.ai-memory.hookCommand` is a SessionStart hook that finds the token without a `.env`.
+
 ## First prompts
 
 After `./setup.sh`, **restart** your AI tools (Claude Code, ZCode, Codex, your IDE) so they load
