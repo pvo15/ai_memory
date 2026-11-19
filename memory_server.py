@@ -204,7 +204,8 @@ def recall(query: str, project: str = "", limit: int = 8) -> str:
     """Search shared memory for facts relevant to a query (keyword search).
 
     query: words describing what you need, e.g. "form validation conventions".
-    project: optional; when set, returns that project's memories plus global ones.
+    project: optional; when set, returns that project's memories plus global ones
+             (and those of linked repos, e.g. the backend of a frontend).
     """
     limit = max(1, min(int(limit), 50))
     q = fts_query(query)
@@ -214,8 +215,9 @@ def recall(query: str, project: str = "", limit: int = 8) -> str:
                    "WHERE memories_fts MATCH ?")
             args: list = [q]
             if project:
-                sql += " AND (m.project=? OR m.project='')"
-                args.append(project)
+                ps = codesearch.group_of(project)
+                sql += f" AND (m.project IN ({','.join('?' * len(ps))}) OR m.project='')"
+                args += ps
             rows = con.execute(sql + " ORDER BY bm25(memories_fts) LIMIT ?",
                                args + [limit]).fetchall()
         else:
@@ -227,8 +229,9 @@ def recall(query: str, project: str = "", limit: int = 8) -> str:
 
 def _recent(con, project: str, limit: int):
     if project:
-        return con.execute("SELECT * FROM memories WHERE project=? OR project='' "
-                           "ORDER BY updated_at DESC LIMIT ?", (project, limit)).fetchall()
+        ps = codesearch.group_of(project)
+        return con.execute(f"SELECT * FROM memories WHERE project IN ({','.join('?' * len(ps))}) "
+                           "OR project='' ORDER BY updated_at DESC LIMIT ?", (*ps, limit)).fetchall()
     return con.execute("SELECT * FROM memories ORDER BY updated_at DESC LIMIT ?",
                        (limit,)).fetchall()
 

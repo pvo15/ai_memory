@@ -79,6 +79,47 @@ def _q(con, sql, *args):
     return con.execute(sql, args).fetchone()[0]
 
 
+def _branch(project: str) -> str:
+    """Current branch, read from .git/HEAD (no git process; the repo is mounted read-only)."""
+    git = os.path.join(codesearch.REPOS_DIR, project, ".git")
+    if os.path.isfile(git):
+        return "(git worktree)"
+    try:
+        with open(os.path.join(git, "HEAD"), encoding="utf-8") as fh:
+            head = fh.read().strip()
+    except OSError:
+        return ""
+    return head[16:] if head.startswith("ref: refs/heads/") else f"detached {head[:8]}"
+
+
+def connected_repos(db) -> list[dict]:
+    """The repo folders ai-memory reads (CODE_PROJECTS), with index state and links."""
+    import rules
+    host_dir = (os.environ.get("PROJECTS_HOST_DIR") or os.environ.get("PROJECTS_DIR", "")).rstrip("/")
+    out = []
+    with closing(db()) as con:
+        for p in codesearch.CODE_PROJECTS:
+            found = os.path.isdir(os.path.join(codesearch.REPOS_DIR, p))
+            files = _q(con, "SELECT count(*) FROM code_files WHERE project=?", p)
+            chunks, vecs = con.execute("SELECT count(*), count(vec) FROM code_chunks WHERE project=?",
+                                       (p,)).fetchone()
+            commits, last = con.execute("SELECT count(*), max(date) FROM git_commits WHERE project=?",
+                                        (p,)).fetchone()
+            st = codesearch._status.get(p, {})
+            out.append({
+                "name": p,
+                "path": f"{host_dir}/{p}" if host_dir else p,
+                "found": found,
+                "branch": _branch(p) if found else "",
+                "files": files, "chunks": chunks, "vectors": vecs,
+                "commits": commits, "last_commit": last,
+                "rules_files": len(rules.rule_files(p)) if found else 0,
+                "linked": [x for x in codesearch.group_of(p) if x != p],
+                "index": {k: v for k, v in st.items() if k in ("state", "done", "total", "finished", "error")},
+            })
+    return out
+
+
 def overview(db) -> dict:
     with closing(db()) as con:
         counts = {
@@ -137,6 +178,7 @@ def overview(db) -> dict:
         "code": {"projects": codesearch.CODE_PROJECTS, "status": {
             p: {k: v for k, v in codesearch._status.get(p, {}).items() if k in
                 ("state", "done", "total", "finished", "changed", "error")} for p in codesearch.CODE_PROJECTS}},
+        "repos": connected_repos(db),
         "charts": {"jira_status": jira_status, "jira_type": jira_type, "commits_week": commits_week,
                    "code_folders": code_folders, "top_tickets": top_tickets},
     }

@@ -15,6 +15,26 @@ export interface CodeIndexStatus {
     error?: string;
 }
 
+/** A repo folder ai-memory reads (CODE_PROJECTS), read-only. */
+export interface ConnectedRepo {
+    name: string;
+    /** Folder on the Mac. */
+    path: string;
+    /** false: in CODE_PROJECTS but no such folder. */
+    found: boolean;
+    branch: string;
+    files: number;
+    chunks: number;
+    /** chunks with a meaning vector (MLX) */
+    vectors: number;
+    commits: number;
+    last_commit: number | null;
+    rules_files: number;
+    /** repos searched together with this one (PROJECT_GROUPS) */
+    linked: string[];
+    index: CodeIndexStatus;
+}
+
 export interface Overview {
     counts: {
         memories: number;
@@ -32,6 +52,7 @@ export interface Overview {
     jira: { configured: boolean; last_sync: number | null; last_result: string; next_sync: number | null };
     backup: { next: number; tz: string; count: number };
     code: { projects: string[]; status: Record<string, CodeIndexStatus> };
+    repos: ConnectedRepo[];
     charts: {
         jira_status: Bar[];
         jira_type: Bar[];

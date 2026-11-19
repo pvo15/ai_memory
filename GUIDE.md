@@ -264,6 +264,19 @@ Every **10 min** only changed files are re-embedded and new commits read. Add a 
 run `docker compose up -d`. Search it with `project="<Name>"`. C#/Java/Kotlin are chunked by
 method. Full re-index: ask the AI *"run code_index with force"* (~7 min on the GPU).
 
+**One product in two repos** (frontend + backend): link them in `.env`, e.g.
+`PROJECT_GROUPS=my-app+my-api`, then `docker compose up -d --force-recreate`. Asking about
+either repo now covers both:
+
+| Tool | With linked repos |
+|---|---|
+| `code_search`, `find_files`, `explain_code` | Search both; each result starts with its repo name, e.g. `my-api/src/Payments/…` |
+| `explain_snippet` | Finds pasted code in either repo (TypeScript or C#) |
+| `project_rules` | Reads both repos' `CLAUDE.md`, `docs/`, `.claude/rules/` |
+| `recall` | Memories of both projects |
+
+To search only one repo, start `path_filter` with its name: `path_filter="my-api"`.
+
 ### 7.7 Session hooks (auto briefing)
 
 | What | Command |
@@ -327,6 +340,7 @@ Edit `.env`, then `docker compose up -d`. Full list with comments: `.env.example
 | `MEMORY_TOKEN` | generated | Protects the server (AI tools send it) |
 | `PROJECTS_DIR` | `~/Desktop/projects` | Folder with your repos (read-only) |
 | `CODE_PROJECTS` | — | Repos to index, comma-separated |
+| `PROJECT_GROUPS` | — | Repos searched together as one product, e.g. `my-app+my-api` (several: `a+b;c+d`) |
 | `MLX` | `auto` | `auto` = use the MLX GPU server when it runs; `off` = never (keyword code search, no Explain AI) |
 | `JIRA_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | — | Your Jira access (optional) |
 | `JIRA_SYNC_PROJECT` / `_DAYS` / `_INTERVAL_HOURS` / `_TYPES` | — (no daily sync) / `90` / `24` / business types | What and how often to sync |

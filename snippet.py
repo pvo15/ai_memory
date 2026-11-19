@@ -138,9 +138,16 @@ def blame(project: str, file: str, start: int, end: int) -> list[dict]:
 
 
 def analyse(db, snippet: str, project: str = "") -> dict:
-    p = codesearch.default_project(project)
     t0 = time.time()
-    loc = locate(db, p, snippet)
+    # Linked repos (web + API): look in each; an exact match beats a "similar" one.
+    p, loc = codesearch.default_project(project), None
+    for cand in codesearch.group_of(project):
+        found = locate(db, cand, snippet)
+        if found and (not loc or (found["method"] == "exact", found["score"])
+                      > (loc["method"] == "exact", loc["score"])):
+            p, loc = cand, found
+        if loc and loc["method"] == "exact" and loc["score"] >= 0.9:
+            break
     if not loc:
         return {"project": p, "location": None, "commits": [], "stories": [], "decisions": [],
                 "ms": int((time.time() - t0) * 1000)}
@@ -189,7 +196,8 @@ def to_markdown(a: dict, story_chars: int = 2500) -> str:
     cl = code.split("\n")
     if len(cl) > 150:  # whole-file explains: keep the model's input small
         code = "\n".join(cl[:150]) + f"\n… ({len(cl) - 150} more lines)"
-    out = [f"# Where: `{loc['file']}` lines {loc['start']}–{loc['end']} ({how})",
+    repo = f"{a['project']}/" if len(codesearch.group_of(a["project"])) > 1 else ""
+    out = [f"# Where: `{repo}{loc['file']}` lines {loc['start']}–{loc['end']} ({how})",
            f"```\n{code}\n```" if code else ""]
     if a["commits"]:
         out.append("## Commits that wrote these lines (git blame, most lines first)\n" + "\n".join(

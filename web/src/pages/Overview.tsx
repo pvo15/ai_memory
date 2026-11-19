@@ -1,12 +1,105 @@
-import { Archive, Brain, Database, FolderGit2, GitCommitHorizontal, ListChecks, Loader2, RefreshCw, Ticket } from 'lucide-react';
+import { Archive, Brain, Database, FolderGit2, GitBranch, GitCommitHorizontal, Link2, ListChecks, Loader2, RefreshCw, Ticket } from 'lucide-react';
 
 import { useAction, useHealth, useJobs, useOverview, useSyncStatus, type Poll } from '../api/hooks';
-import type { ActionName, Job } from '../api/types';
+import type { ActionName, ConnectedRepo, Job } from '../api/types';
 import { BarList, WeekColumns } from '../components/charts';
 import { HealthCard, JobsCard } from '../components/Monitor';
 import { QuickCommandsCard } from './Cheatsheet';
-import { Card, StatTile, useToast } from '../components/ui';
+import { Card, StatTile, StatusPill, Tag, useToast } from '../components/ui';
 import { ago, bytes, dateTime, fmtNum, until } from '../lib/format';
+
+function RepoIndex({ r }: { r: ConnectedRepo }) {
+    if (!r.found) return <StatusPill health="critical">folder not found</StatusPill>;
+    const s = r.index;
+    const meaning = r.chunks ? Math.round((r.vectors / r.chunks) * 100) : 0;
+    return (
+        <>
+            {fmtNum(r.files)} files · {fmtNum(r.chunks)} chunks
+            <div className="muted small">
+                {s.state === 'indexing'
+                    ? `indexing now: ${fmtNum(s.done ?? 0)}/${fmtNum(s.total ?? 0)} chunks`
+                    : s.error
+                      ? s.error
+                      : s.finished
+                        ? `${s.state ?? 'ready'}, ${ago(s.finished)}`
+                        : 'waiting for first run'}
+                {r.chunks > 0 && ` · meaning ${meaning}%`}
+            </div>
+        </>
+    );
+}
+
+/** The repo folders ai-memory reads, and which of them are searched together. */
+function ConnectedFoldersCard({ repos }: { repos: ConnectedRepo[] }) {
+    return (
+        <Card title="Connected folders · read-only" icon={<FolderGit2 size={14} />}>
+            {repos.length === 0 ? (
+                <div className="muted">
+                    No repos connected. Add folder names to <code>CODE_PROJECTS</code> in <code>.env</code>, then restart.
+                </div>
+            ) : (
+                <div style={{ overflowX: 'auto' }}>
+                    <table data-testid="connected-folders">
+                        <thead>
+                            <tr>
+                                <th>Folder</th>
+                                <th>Branch</th>
+                                <th>Code index</th>
+                                <th>Git history</th>
+                                <th>Rules files</th>
+                                <th>Searched together with</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {repos.map((r) => (
+                                <tr key={r.name}>
+                                    <td>
+                                        <b>{r.name}</b>
+                                        <div className="muted small" style={{ overflowWrap: 'anywhere' }} title={r.path}>
+                                            {r.path.replace(/^\/Users\/[^/]+/, '~')}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {r.branch ? (
+                                            <Tag>
+                                                <GitBranch size={11} aria-hidden style={{ verticalAlign: -1, marginRight: 3 }} />
+                                                {r.branch}
+                                            </Tag>
+                                        ) : (
+                                            <span className="muted">—</span>
+                                        )}
+                                    </td>
+                                    <td><RepoIndex r={r} /></td>
+                                    <td>
+                                        {fmtNum(r.commits)} commits
+                                        {r.last_commit && <div className="muted small">last {ago(r.last_commit)}</div>}
+                                    </td>
+                                    <td>{r.found ? fmtNum(r.rules_files) : '—'}</td>
+                                    <td>
+                                        {r.linked.length ? (
+                                            r.linked.map((l) => (
+                                                <div key={l}>
+                                                    <Link2 size={12} aria-hidden style={{ verticalAlign: -1, marginRight: 4 }} />
+                                                    {l}
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <span className="muted">— (searched alone)</span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+            <div className="muted small" style={{ marginTop: 8 }}>
+                The index follows each folder&apos;s current branch. Add a folder: <code>CODE_PROJECTS</code> in{' '}
+                <code>.env</code> · link folders into one project: <code>PROJECT_GROUPS=a+b</code>.
+            </div>
+        </Card>
+    );
+}
 
 function JobButton({ name, label, job }: { name: ActionName; label: string; job?: Job }) {
     const action = useAction();
@@ -67,6 +160,8 @@ export function OverviewPage({ poll }: { poll: Poll }) {
                 <StatTile value={fmtNum(c.commits)} label="commits" sub={`${fmtNum(c.commits_keyed)} with a ticket key`} icon={<GitCommitHorizontal size={14} />} />
                 <StatTile value={bytes(o.server.db_bytes)} label="database" sub={`${fmtNum(o.backup.count)} backups kept`} icon={<Database size={14} />} />
             </div>
+
+            <ConnectedFoldersCard repos={o.repos ?? []} />
 
             <div className="grid-2">
                 <Card title="Schedules & jobs" icon={<Archive size={14} />}>

@@ -7,6 +7,7 @@ services:
     env_file: .env
     environment:
       MEMORY_DB: /data/memory.db
+      PROJECTS_HOST_DIR: ${PROJECTS_DIR:-${HOME}/Desktop/projects}   # shown on the dashboard
     ports:
       - "127.0.0.1:8765:8765"   # only reachable from this Mac
     volumes:

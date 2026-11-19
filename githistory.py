@@ -159,35 +159,43 @@ def register(mcp, db) -> None:
         Give `file` (repo-relative path) or a `query` (finds the top matching files).
         Then explain to the user, citing the tickets and commit messages as the reasons.
         """
-        p = codesearch.default_project(project)
-        targets: list[tuple[str, str]] = []
+        ps = codesearch.group_of(project)
+        targets: list[tuple[str, str, str]] = []  # (project, file, code)
         if file:
+            found = codesearch.resolve_file(db, ps, file)
+            if not found:
+                return f"{file} is not an indexed file of {', '.join(ps)}."
+            p, f = found
             with closing(db()) as con:
                 rows = con.execute("SELECT text FROM code_chunks WHERE project=? AND file=? ORDER BY start_line",
-                                   (p, file)).fetchall()
+                                   (p, f)).fetchall()
             snippet = "\n".join(r["text"] for r in rows)
             lines = snippet.split("\n")
-            targets.append((file, "\n".join(lines[:120]) + ("\n…" if len(lines) > 120 else "")))
+            targets.append((p, f, "\n".join(lines[:120]) + ("\n…" if len(lines) > 120 else "")))
         elif query:
-            results, _ = codesearch.search(db, query, p, limit=6)
+            # linked repos (web + API): up to 4 files, so both sides of a feature can show up
+            results, _ = codesearch.search(db, query, ps, limit=8)
             seen = []
             for r in results:
-                if r["file"] not in seen:
-                    seen.append(r["file"])
-                    targets.append((r["file"], r["text"]))
-                if len(targets) >= 3:
+                if (r["project"], r["file"]) not in seen:
+                    seen.append((r["project"], r["file"]))
+                    targets.append((r["project"], r["file"], r["text"]))
+                if len(targets) >= (4 if len(ps) > 1 else 3):
                     break
         else:
             return "Give a file path or a query."
         if not targets:
             return "No matching code found."
         seen: set = set()
-        return "\n\n---\n\n".join(explanation_package(db, p, f, s, query, seen) for f, s in targets)
+        return "\n\n---\n\n".join(
+            (f"_Repo: {p}_\n" if len(ps) > 1 else "") + explanation_package(db, p, f, s, query, seen)
+            for p, f, s in targets)
 
     @mcp.tool()
     def file_history(file: str, project: str = "", limit: int = 15) -> str:
         """Git history of one file: dates, authors, commit messages, Jira keys."""
-        p = codesearch.default_project(project)
+        ps = codesearch.group_of(project)
+        p, file = codesearch.resolve_file(db, ps, file) or (ps[0], file)
         with closing(db()) as con:
             rows = file_commits(con, p, file, max(1, min(int(limit), 100)))
         if not rows:

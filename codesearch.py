@@ -39,6 +39,9 @@ EMBED_MODEL = os.environ.get("EMBED_MODEL", "mlx-community/Qwen3-Embedding-0.6B-
 # auto = use the MLX GPU server when it answers; off = never (Intel Mac / no GPU server)
 MLX_MODE = "off" if os.environ.get("MLX", "auto").strip().lower() in ("off", "0", "false", "no") else "auto"
 CODE_PROJECTS = [p.strip() for p in os.environ.get("CODE_PROJECTS", "").split(",") if p.strip()]
+# Repos that form ONE product, searched together: "web+api" (several groups: "a+b;c+d").
+PROJECT_GROUPS = [[p.strip() for p in g.split("+") if p.strip()]
+                  for g in os.environ.get("PROJECT_GROUPS", "").split(";") if "+" in g]
 REINDEX_EVERY_S = int(os.environ.get("CODE_REINDEX_SECONDS", "600"))
 
 EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".md", ".css", ".scss", ".html",
@@ -344,18 +347,21 @@ def fts_query(q: str) -> str:
     return " OR ".join(f'"{t}"' for t in toks if len(t) > 1)
 
 
-def search(db, query: str, project: str, path_filter: str = "", limit: int = 6, k: int = 50):
-    """-> (results, note). results: [{id, file, start, end, text, sim, rrf}]"""
+def search(db, query: str, project: str | list[str], path_filter: str = "", limit: int = 6, k: int = 50):
+    """-> (results, note). results: [{id, project, file, start, end, text, sim, rrf}]
+    project: one repo, or a list of repos searched as one (same model, so scores compare)."""
+    projects = [project] if isinstance(project, str) else list(project)
     note = ""
     ranked: dict[int, float] = {}
     sims: dict[int, float] = {}
 
-    m = _matrix(db, project) if mlx_up() else None
-    if m is not None:
+    ms = [m for m in (_matrix(db, p) for p in projects) if m is not None] if mlx_up() else []
+    if ms:
         try:
             qv = embed([QUERY_INSTRUCT + query])[0]
-            ids, files, mat = m
-            s = mat @ qv
+            ids = np.concatenate([m[0] for m in ms])
+            files = [f for m in ms for f in m[1]]
+            s = np.concatenate([m[2] @ qv for m in ms])
             if path_filter:
                 s = np.where([f.startswith(path_filter) for f in files], s, -1.0)
             top = np.argsort(-s)[:k]
@@ -373,8 +379,9 @@ def search(db, query: str, project: str, path_filter: str = "", limit: int = 6, 
     q = fts_query(query)
     if q:
         with closing(db()) as con:
-            sql = "SELECT rowid FROM code_fts WHERE code_fts MATCH ? AND project=?"
-            args = [q, project]
+            sql = (f"SELECT rowid FROM code_fts WHERE code_fts MATCH ? "
+                   f"AND project IN ({','.join('?' * len(projects))})")
+            args = [q, *projects]
             if path_filter:
                 sql += " AND file LIKE ?"
                 args.append(path_filter + "%")
@@ -398,25 +405,29 @@ def search(db, query: str, project: str, path_filter: str = "", limit: int = 6, 
     with closing(db()) as con:
         for cid in best:
             r = con.execute("SELECT * FROM code_chunks WHERE id=?", (cid,)).fetchone()
-            if not r or per_file.get(r["file"], 0) >= 2:  # at most 2 chunks per file
+            key = (r["project"], r["file"]) if r else None
+            if not r or per_file.get(key, 0) >= 2:  # at most 2 chunks per file
                 continue
-            per_file[r["file"]] = per_file.get(r["file"], 0) + 1
-            out.append({"id": cid, "file": r["file"], "start": r["start_line"], "end": r["end_line"],
+            per_file[key] = per_file.get(key, 0) + 1
+            out.append({"id": cid, "project": r["project"], "file": r["file"],
+                        "start": r["start_line"], "end": r["end_line"],
                         "text": r["text"], "sim": sims.get(cid), "rrf": ranked[cid]})
             if len(out) >= limit:
                 break
     return out, note
 
 
-def format_results(db, project: str, results: list, note: str, max_lines: int = 60) -> str:
+def format_results(db, project: str | list[str], results: list, note: str, max_lines: int = 60) -> str:
     if not results:
         return (note + "\n" if note else "") + "No matches. Try other words, or grep for exact names."
+    many = not isinstance(project, str) and len(project) > 1
     parts = [note] if note else []
     with closing(db()) as con:
         for r in results:
+            p = r.get("project") or (project if isinstance(project, str) else project[0])
             sim = f"meaning {r['sim']:.2f}" if r["sim"] is not None else "keyword match"
-            head = f"## {r['file']}:{r['start']}-{r['end']}  ({sim})"
-            notes = [n for n in (fn(con, project, r["file"]) for fn in FILE_NOTES) if n]
+            head = f"## {p + '/' if many else ''}{r['file']}:{r['start']}-{r['end']}  ({sim})"
+            notes = [n for n in (fn(con, p, r["file"]) for fn in FILE_NOTES) if n]
             lines = r["text"].split("\n")
             body = "\n".join(lines[:max_lines]) + (f"\n… ({len(lines) - max_lines} more lines)" if len(lines) > max_lines else "")
             parts.append(head + ("\n" + "\n".join(notes) if notes else "") + f"\n```\n{body}\n```")
@@ -558,6 +569,34 @@ def default_project(p: str) -> str:
     return p or (CODE_PROJECTS[0] if CODE_PROJECTS else "")
 
 
+def group_of(p: str) -> list[str]:
+    """The project plus the repos linked to it in PROJECT_GROUPS (itself first)."""
+    p = default_project(p)
+    for g in PROJECT_GROUPS:
+        if p in g:
+            return [p] + [x for x in g if x != p]
+    return [p]
+
+
+def narrow(projects: list[str], path_filter: str) -> tuple[list[str], str]:
+    """path_filter may start with a repo name to search only that repo:
+    "Highway.BBP.API" or "Highway.BBP.API/src/Domain"."""
+    head, _, rest = (path_filter or "").partition("/")
+    return ([head], rest) if head in projects else (projects, path_filter)
+
+
+def resolve_file(db, projects: list[str], file: str) -> tuple[str, str] | None:
+    """(project, file) for a path given plain or as "<repo>/<path>"; first repo that has it."""
+    head, _, rest = file.partition("/")
+    if head in projects and rest:
+        projects, file = [head], rest
+    with closing(db()) as con:
+        for p in projects:
+            if con.execute("SELECT 1 FROM code_files WHERE project=? AND file=?", (p, file)).fetchone():
+                return p, file
+    return None
+
+
 def register(mcp, db) -> None:
     with closing(db()) as con, con:
         con.executescript(SCHEMA)
@@ -570,17 +609,22 @@ def register(mcp, db) -> None:
                "drafts hook" (all words must match), "ptp" (letters in order).
         Returns repo-relative paths, best first, with the Jira tickets behind each file.
         Use code_search instead when you know WHAT the code does but not its name.
+        Linked repos (PROJECT_GROUPS, e.g. web + API) are searched together; paths then
+        start with the repo name.
         """
-        p = default_project(project)
-        rows = search_files(db, p, query, max(1, min(int(limit), 50)))
+        ps = group_of(project)
+        n = max(1, min(int(limit), 50))
+        rows = sorted(({**r, "project": p} for p in ps for r in search_files(db, p, query, n)),
+                      key=lambda r: -r["score"])[:n]
         if not rows:
-            return f"No file path matches '{query}' in {p}."
+            return f"No file path matches '{query}' in {', '.join(ps)}."
         lines = []
         with closing(db()) as con:
             for r in rows:
-                notes = [n for n in (fn(con, p, r["file"]) for fn in FILE_NOTES) if n]
-                lines.append(f"- `{r['file']}`" + (f"\n  {notes[0]}" if notes else ""))
-        return f"{len(rows)} file(s) in {p}:\n" + "\n".join(lines)
+                notes = [x for x in (fn(con, r["project"], r["file"]) for fn in FILE_NOTES) if x]
+                path = f"{r['project']}/{r['file']}" if len(ps) > 1 else r["file"]
+                lines.append(f"- `{path}`" + (f"\n  {notes[0]}" if notes else ""))
+        return f"{len(rows)} file(s) in {', '.join(ps)}:\n" + "\n".join(lines)
 
     @mcp.tool()
     def code_search(query: str, project: str = "", path_filter: str = "", limit: int = 6) -> str:
@@ -588,13 +632,17 @@ def register(mcp, db) -> None:
 
         query: describe what you look for ("where are auth headers added to requests")
                or name it ("useTemplatesQuery"). Both work.
-        project: repo folder, default: the first one in CODE_PROJECTS. path_filter: e.g. "src/entities".
+        project: repo folder, default: the first one in CODE_PROJECTS. Repos linked to it
+                 (PROJECT_GROUPS, e.g. frontend + backend) are searched together, so one
+                 question finds both sides; each result then starts with its repo name.
+        path_filter: e.g. "src/entities"; start it with a repo name to search only that repo
+                 ("Highway.BBP.API" or "Highway.BBP.API/src").
         Each result shows file:lines, the code, and (when known) the Jira tickets/commits
         that changed that file -- use `explain_code` for the full "why".
         """
-        p = default_project(project)
-        results, note = search(db, query, p, path_filter, max(1, min(int(limit), 20)))
-        return format_results(db, p, results, note)
+        ps, pf = narrow(group_of(project), path_filter)
+        results, note = search(db, query, ps, pf, max(1, min(int(limit), 20)))
+        return format_results(db, ps, results, note)
 
     @mcp.tool()
     def code_index(project: str = "", force: bool = False) -> str:

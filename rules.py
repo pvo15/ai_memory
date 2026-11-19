@@ -5,7 +5,8 @@ Claude Code loads CLAUDE.md by itself, but other tools (GLM, sub-agents, Codex .
 don't -- and even Claude benefits from pulling just the relevant section.
 
 Source files (read-only mount of your projects folder -> /repos/<project>/...):
-  CLAUDE.md, AGENTS.md, .junie/guidelines.md, docs/**/*.md, .claude/agents/*.md
+  CLAUDE.md, AGENTS.md, .junie/guidelines.md, docs/**/*.md, .claude/agents/*.md, .claude/rules/**/*.md
+Linked repos (PROJECT_GROUPS, e.g. web + API) are read together as one project.
 Each file is split into sections at markdown headings and indexed with FTS5.
 Before every query, file mtimes are compared, and only changed files are re-indexed --
 so edits to CLAUDE.md are visible immediately, without a restart.
@@ -15,10 +16,12 @@ import os
 import re
 from contextlib import closing
 
+import codesearch
+
 REPOS_DIR = os.environ.get("REPOS_DIR", "/repos")
 RULE_GLOBS = os.environ.get(
     "RULES_GLOBS",
-    "CLAUDE.md,AGENTS.md,.junie/guidelines.md,docs/**/*.md,.claude/agents/*.md",
+    "CLAUDE.md,AGENTS.md,.junie/guidelines.md,docs/**/*.md,.claude/agents/*.md,.claude/rules/**/*.md",
 ).split(",")
 MAX_SECTION_CHARS = 2500
 PROJECT_RE = re.compile(r"^[\w.\-]+$")  # a plain folder name: no "/" or ".."
@@ -102,7 +105,8 @@ def register(mcp, db) -> None:
         """Get the project's rules: architecture, code style, conventions, testing, agent roles.
 
         Use BEFORE writing code in a project, and whenever unsure how something is done there.
-        project: repo folder name, e.g. "my-app".
+        project: repo folder name, e.g. "my-app". Repos linked to it (PROJECT_GROUPS, e.g.
+                 frontend + backend) are read together; their paths start with the repo name.
         topic: what you need, e.g. "form validation", "sx spacing", "test coverage", "api requests".
                Returns the best-matching sections. Empty topic = table of contents.
         file: return one whole rules file instead (path as listed in the table of contents).
@@ -115,36 +119,49 @@ def register(mcp, db) -> None:
                 if os.path.isdir(REPOS_DIR) else []
             return f"Unknown project {project}. Available: {', '.join(avail) or '(none mounted)'}"
 
+        ps = [p for p in codesearch.group_of(project) if os.path.isdir(os.path.join(REPOS_DIR, p))]
+        many = len(ps) > 1
+
+        def label(p: str, f: str) -> str:
+            return f"{p}/{f}" if many else f
+
         with closing(db()) as con, con:
-            sync(con, project)
+            for p in ps:
+                sync(con, p)
 
             if file:
-                if file not in rule_files(project):  # only known rules files, never arbitrary paths
+                head, _, rest = file.partition("/")
+                fp, ff = (head, rest) if head in ps and rest else (project, file)
+                if ff not in rule_files(fp):  # only known rules files, never arbitrary paths
                     return f"{file} is not a rules file of {project}. Call with no topic to list them."
-                with open(os.path.join(REPOS_DIR, project, file), encoding="utf-8", errors="replace") as fh:
-                    return f"# {project}/{file}\n\n" + fh.read()[:20000]
+                with open(os.path.join(REPOS_DIR, fp, ff), encoding="utf-8", errors="replace") as fh:
+                    return f"# {fp}/{ff}\n\n" + fh.read()[:20000]
 
+            marks = ",".join("?" * len(ps))
             if not topic.strip():
-                rows = con.execute("SELECT file, heading FROM rules_fts WHERE project=?", (project,)).fetchall()
+                rows = con.execute(f"SELECT project, file, heading FROM rules_fts WHERE project IN ({marks})",
+                                   ps).fetchall()
                 if not rows:
-                    return f"No rules files found in {project} ({', '.join(RULE_GLOBS)})."
+                    return f"No rules files found in {', '.join(ps)} ({', '.join(RULE_GLOBS)})."
                 toc: dict[str, list[str]] = {}
                 for r in rows:
-                    toc.setdefault(r["file"], []).append(r["heading"])
-                return f"# Rules in {project}\n" + "\n".join(
+                    toc.setdefault(label(r["project"], r["file"]), []).append(r["heading"])
+                return f"# Rules in {' + '.join(ps)}\n" + "\n".join(
                     f"\n## {f}\n" + "\n".join(f"- {h}" for h in hs) for f, hs in toc.items())
 
             q = fts_query(topic)
             rows = con.execute(
-                "SELECT file, heading, body FROM rules_fts WHERE rules_fts MATCH ? AND project=? "
+                f"SELECT project, file, heading, body FROM rules_fts WHERE rules_fts MATCH ? "
+                f"AND project IN ({marks}) "
                 "ORDER BY bm25(rules_fts, 0, 0, 4.0, 1.0) LIMIT ?",  # heading matches weigh 4x
-                (q, project, max(1, min(int(limit), 15)))).fetchall() if q else []
+                (q, *ps, max(1, min(int(limit), 15)))).fetchall() if q else []
         if not rows:
             return f"No rule section matches '{topic}'. Call with no topic for the table of contents."
         out = []
         for r in rows:
             body = r["body"]
+            name = label(r["project"], r["file"])
             if len(body) > MAX_SECTION_CHARS:
-                body = body[:MAX_SECTION_CHARS] + f"\n… _(truncated — use file=\"{r['file']}\")_"
-            out.append(f"## {r['file']} › {r['heading']}\n{body}")
+                body = body[:MAX_SECTION_CHARS] + f"\n… _(truncated — use file=\"{name}\")_"
+            out.append(f"## {name} › {r['heading']}\n{body}")
         return "\n\n".join(out)
