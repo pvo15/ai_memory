@@ -96,6 +96,55 @@ def sync(con, project: str) -> int:
     return changed
 
 
+# ---------------------------------------------------------------- dashboard (Rules tab)
+def _allowed(project: str) -> bool:
+    """Dashboard only shows connected repos (CODE_PROJECTS), never arbitrary folders."""
+    return project in codesearch.CODE_PROJECTS and os.path.isdir(os.path.join(REPOS_DIR, project))
+
+
+def dash_list(db, project: str) -> dict:
+    """Rules files of one repo, grouped by folder, with their section headings."""
+    if not _allowed(project):
+        return {"error": f"{project or '(none)'} is not a connected folder"}
+    with closing(db()) as con, con:
+        sync(con, project)
+        rows = con.execute("SELECT file, heading FROM rules_fts WHERE project=?", (project,)).fetchall()
+    heads: dict[str, list[str]] = {}
+    for r in rows:
+        heads.setdefault(r["file"], []).append(r["heading"])
+    files = []
+    for f in rule_files(project):
+        folder = os.path.dirname(f) or "(top)"
+        files.append({"file": f, "folder": folder, "sections": len(heads.get(f, [])),
+                      "headings": heads.get(f, [])[:40],
+                      "mtime": os.path.getmtime(os.path.join(REPOS_DIR, project, f))})
+    return {"project": project, "globs": RULE_GLOBS, "files": files}
+
+
+def dash_file(project: str, file: str) -> dict:
+    if not _allowed(project) or file not in rule_files(project):  # known rules files only
+        return {"error": "not a rules file of a connected folder"}
+    with open(os.path.join(REPOS_DIR, project, file), encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    return {"project": project, "file": file, "text": text[:200_000],
+            "mtime": os.path.getmtime(os.path.join(REPOS_DIR, project, file))}
+
+
+def dash_search(db, project: str, q: str, limit: int = 30) -> dict:
+    if not _allowed(project):
+        return {"error": f"{project or '(none)'} is not a connected folder"}
+    fq = fts_query(q)
+    if not fq:
+        return {"project": project, "results": []}
+    with closing(db()) as con, con:
+        sync(con, project)
+        rows = con.execute(
+            "SELECT file, heading, snippet(rules_fts, 3, '', '', ' … ', 24) AS snip FROM rules_fts "
+            "WHERE rules_fts MATCH ? AND project=? ORDER BY bm25(rules_fts, 0, 0, 4.0, 1.0) LIMIT ?",
+            (fq, project, limit)).fetchall()
+    return {"project": project, "results": [dict(r) for r in rows]}
+
+
 def register(mcp, db) -> None:
     with closing(db()) as con, con:
         con.executescript(SCHEMA)

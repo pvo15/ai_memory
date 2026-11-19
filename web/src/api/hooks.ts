@@ -15,6 +15,9 @@ import type {
     LogLine,
     Memory,
     Overview,
+    RuleFileView,
+    RuleHit,
+    RulesList,
     SyncStatus,
 } from './types';
 
@@ -142,3 +145,25 @@ export function useAction() {
         },
     });
 }
+
+export const useRules = (project: string) =>
+    useQuery({
+        queryKey: ['rules', project],
+        queryFn: () => apiFetch<RulesList>(`/api/rules?${qs({ project })}`),
+        enabled: !!project,
+    });
+
+export const useRuleFile = (project: string, file: string | null) =>
+    useQuery({
+        queryKey: ['rule-file', project, file],
+        queryFn: () => apiFetch<RuleFileView>(`/api/rules/file?${qs({ project, file: file ?? '' })}`),
+        enabled: !!project && !!file,
+    });
+
+export const useRuleSearch = (project: string, q: string) =>
+    useQuery({
+        queryKey: ['rule-search', project, q],
+        queryFn: () => apiFetch<{ project: string; results: RuleHit[]; error?: string }>(`/api/rules/search?${qs({ project, q })}`),
+        enabled: !!project && q.trim().length > 0,
+        placeholderData: keepPreviousData,
+    });

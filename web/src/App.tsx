@@ -4,6 +4,7 @@ import {
     BookOpen,
     Brain,
     Code2,
+    FileText,
     KeyRound,
     LayoutDashboard,
     MemoryStick,
@@ -48,11 +49,13 @@ import { JiraPage } from './pages/Jira';
 import { LogsPage } from './pages/Logs';
 import { MemoriesPage } from './pages/Memories';
 import { OverviewPage } from './pages/Overview';
+import { RulesPage } from './pages/Rules';
 
 const TABS = {
     overview: { label: 'Overview', icon: LayoutDashboard },
     jira: { label: 'Jira', icon: Ticket },
     code: { label: 'Code', icon: Code2 },
+    rules: { label: 'Rules', icon: FileText },
     memories: { label: 'Memories', icon: Brain },
     backups: { label: 'Backups', icon: Archive },
     logs: { label: 'Logs', icon: ScrollText },
@@ -161,6 +164,7 @@ export function App({ onToken }: { onToken: () => void }) {
                 {tab === 'overview' && <OverviewPage poll={poll} />}
                 {tab === 'jira' && <JiraPage />}
                 {tab === 'code' && <CodePage />}
+                {tab === 'rules' && <RulesPage />}
                 {tab === 'memories' && <MemoriesPage />}
                 {tab === 'backups' && <BackupsPage />}
                 {tab === 'logs' && <LogsPage poll={poll} />}

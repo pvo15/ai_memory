@@ -215,3 +215,34 @@ export interface Health {
     jobs: { running: RunningJob[]; recent: RunningJob[] };
     at: number;
 }
+
+/* ---------------------------------------------------------------- Rules tab */
+export interface RuleFileRow {
+    file: string;
+    /** folder inside the repo, "(top)" for the root */
+    folder: string;
+    sections: number;
+    headings: string[];
+    mtime: number;
+}
+
+export interface RulesList {
+    project: string;
+    globs: string[];
+    files: RuleFileRow[];
+    error?: string;
+}
+
+export interface RuleFileView {
+    project: string;
+    file: string;
+    text: string;
+    mtime: number;
+    error?: string;
+}
+
+export interface RuleHit {
+    file: string;
+    heading: string;
+    snip: string;
+}

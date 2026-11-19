@@ -649,6 +649,15 @@ async def handle_api(db, scope, send, receive=None):
             return await _send_json(send, await run(file_api, db, q.get("path", ""), q.get("project", "")))
         if path == "/api/code/search":
             return await _send_json(send, await run(code_search, db, q.get("q", ""), q.get("path", ""), q.get("project", "")))
+        if path.startswith("/api/rules"):
+            import rules
+            p = q.get("project", "")
+            if path == "/api/rules":
+                return await _send_json(send, await run(rules.dash_list, db, p))
+            if path == "/api/rules/file":
+                return await _send_json(send, await run(rules.dash_file, p, q.get("file", "")))
+            if path == "/api/rules/search":
+                return await _send_json(send, await run(rules.dash_search, db, p, q.get("q", "")))
         if path == "/api/backups":
             return await _send_json(send, {"files": list_backups(), "dir": "~/Documents/ai-memory/backups"})
         if path == "/api/logs":

@@ -5,6 +5,7 @@ import type { ActionName, ConnectedRepo, Job } from '../api/types';
 import { BarList, WeekColumns } from '../components/charts';
 import { HealthCard, JobsCard } from '../components/Monitor';
 import { QuickCommandsCard } from './Cheatsheet';
+import { RULES_PROJECT_KEY } from './Rules';
 import { Card, StatTile, StatusPill, Tag, useToast } from '../components/ui';
 import { ago, bytes, dateTime, fmtNum, until } from '../lib/format';
 
@@ -74,7 +75,26 @@ function ConnectedFoldersCard({ repos }: { repos: ConnectedRepo[] }) {
                                         {fmtNum(r.commits)} commits
                                         {r.last_commit && <div className="muted small">last {ago(r.last_commit)}</div>}
                                     </td>
-                                    <td>{r.found ? fmtNum(r.rules_files) : '—'}</td>
+                                    <td>
+                                        {r.found && r.rules_files > 0 ? (
+                                            <a
+                                                href="#rules"
+                                                onClick={() => {
+                                                    try {
+                                                        sessionStorage.setItem(RULES_PROJECT_KEY, r.name);
+                                                    } catch {
+                                                        /* private window: the tab opens on the first project */
+                                                    }
+                                                }}
+                                            >
+                                                {fmtNum(r.rules_files)} · view
+                                            </a>
+                                        ) : r.found ? (
+                                            0
+                                        ) : (
+                                            '—'
+                                        )}
+                                    </td>
                                     <td>
                                         {r.linked.length ? (
                                             r.linked.map((l) => (
