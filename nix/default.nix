@@ -20,6 +20,11 @@ in
 {
   overlays.default = import ./overlay.nix;
 
+  homeManagerModules = {
+    ai-memory = import ./hm-module.nix self;
+    default = self.homeManagerModules.ai-memory;
+  };
+
   packages = forAllSystems (
     system:
     let
@@ -38,7 +43,13 @@ in
     default = import ./devshell.nix { pkgs = pkgsFor system; };
   });
 
-  checks = forAllSystems (system: import ./checks.nix { pkgs = pkgsFor system; });
+  checks = forAllSystems (
+    system:
+    import ./checks.nix {
+      inherit self;
+      pkgs = pkgsFor system;
+    }
+  );
 
   formatter = forAllSystems (system: (pkgsFor system).nixfmt-tree);
 }

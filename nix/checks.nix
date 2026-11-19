@@ -1,8 +1,9 @@
 # `nix flake check`: both packages build (the dashboard build includes the TypeScript type
 # check) and every server module imports. The repo has no test suite.
-{ pkgs }:
+{ self, pkgs }:
 {
   inherit (pkgs) ai-memory ai-memory-web;
+  home-manager-module = import ./module-check.nix { inherit self pkgs; };
   imports =
     pkgs.runCommand "ai-memory-imports"
       {
