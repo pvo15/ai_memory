@@ -65,8 +65,19 @@ def capture_logs() -> None:
     sys.stderr = _Tee(sys.stderr, "err")
 
 
+# uvicorn access line: `... "GET /path?x=y HTTP/1.1" 200 OK`; the request line is quoted.
+_ACCESS = re.compile(r'"[A-Z]+ \S+ HTTP/[\d.]+" (\d{3})\b')
+_REQUEST = re.compile(r'"[a-z]+ \S+ http/[\d.]+"')
+
+
 def level_of(line: str) -> str:
-    l = line.lower()
+    # Access lines are classified by status code: a path or query that contains "error" or
+    # "retry" (a project or branch name) must not count. 4xx stay info (clients send
+    # `POST /mcp ... 400` routinely).
+    m = _ACCESS.search(line)
+    if m:
+        return "error" if m.group(1)[0] == "5" else "info"
+    l = _REQUEST.sub("", line.lower())
     if re.search(r"\b(error|failed|traceback|exception)\b", l):
         return "error"
     if re.search(r"\b(warn|warning|down|retry)\b", l):
