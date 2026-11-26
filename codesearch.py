@@ -682,7 +682,7 @@ def register(mcp, db) -> None:
 
 def start_scheduler(db) -> None:
     """Keep indexes fresh: every CODE_REINDEX_SECONDS re-embed only changed files (HTTP server only)."""
-    if REINDEX_EVERY_S <= 0 or not CODE_PROJECTS:
+    if REINDEX_EVERY_S <= 0:
         print("code auto-index: off", flush=True)
         return
 
@@ -695,7 +695,7 @@ def start_scheduler(db) -> None:
                 print("code auto-index: " + ("MLX up, meaning search on" if up else
                       "keyword search only (MLX " + ("turned off" if MLX_MODE == "off" else "not running") + ")"), flush=True)
                 was_up = up
-            for p in CODE_PROJECTS:
+            for p in list(CODE_PROJECTS):  # a copy: repos can be connected meanwhile (projects.py)
                 if os.path.isdir(os.path.join(REPOS_DIR, p)):
                     st = index_project(db, p)
                     if st.get("changed") or st.get("vectors_added"):
@@ -706,4 +706,4 @@ def start_scheduler(db) -> None:
             time.sleep(REINDEX_EVERY_S)
 
     threading.Thread(target=loop, name="code-auto-index", daemon=True).start()
-    print(f"code auto-index: {', '.join(CODE_PROJECTS)} every {REINDEX_EVERY_S}s", flush=True)
+    print(f"code auto-index: {', '.join(CODE_PROJECTS) or 'no repos yet'} every {REINDEX_EVERY_S}s", flush=True)

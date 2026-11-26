@@ -81,6 +81,7 @@ const SECTIONS: Section[] = [
             { say: 'What is this code and which story is it from? (paste the code below)', does: 'Location + commits that wrote it + Jira story', tool: 'explain_snippet' },
             { say: 'Why do templates keep their position on rename?', does: 'Code + commits + story → the reason', tool: 'explain_code' },
             { say: 'Who changed PaymentTemplatesPanel recently and why?', does: 'File history with commit messages', tool: 'file_history' },
+            { say: 'Connect the repo my-api to ai-memory, searched together with my-app', does: 'Indexes a repo from the projects folder, no restart', tool: 'connect_project' },
         ],
     },
     {

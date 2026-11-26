@@ -3,7 +3,9 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { apiFetch, qs } from './client';
 import type {
     ActionName,
+    AvailableRepo,
     BackupFile,
+    Cleanup,
     CodeSearch,
     Explanation,
     FileHit,
@@ -167,3 +169,54 @@ export const useRuleSearch = (project: string, q: string) =>
         enabled: !!project && q.trim().length > 0,
         placeholderData: keepPreviousData,
     });
+
+// ---------------------------------------------------------------- clean-up + connecting repos
+type Result = { ok: boolean; message: string };
+const postJson = <T,>(path: string, body: unknown) =>
+    apiFetch<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+export const useCleanup = () =>
+    useQuery({ queryKey: ['cleanup'], queryFn: () => apiFetch<Cleanup>('/api/cleanup') });
+
+/** Delete one of my memories (same rules as the `forget` tool). */
+export function useDeleteMemory() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (id: number) => postJson<Result>('/api/memory/delete', { id }),
+        onSettled: () => {
+            for (const key of ['cleanup', 'memories', 'overview', 'sync']) void qc.invalidateQueries({ queryKey: [key] });
+        },
+    });
+}
+
+export function useSetTaskStatus() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (v: { key: string; status: 'active' | 'paused' | 'done' }) => postJson<Result>('/api/task/status', v),
+        onSettled: () => {
+            for (const key of ['cleanup', 'overview']) void qc.invalidateQueries({ queryKey: [key] });
+        },
+    });
+}
+
+export const useAvailableRepos = (enabled: boolean) =>
+    useQuery({
+        queryKey: ['repos-available'],
+        queryFn: () => apiFetch<AvailableRepo[]>('/api/projects/available'),
+        enabled,
+    });
+
+/** Connect a repo folder (no restart) or disconnect one that was connected here. */
+export function useConnectRepo() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (v: { name: string; linked_to?: string; disconnect?: boolean }) =>
+            postJson<Result>(v.disconnect ? '/api/projects/disconnect' : '/api/projects/connect', {
+                name: v.name,
+                linked_to: v.linked_to ?? '',
+            }),
+        onSettled: () => {
+            for (const key of ['overview', 'repos-available', 'health', 'rules']) void qc.invalidateQueries({ queryKey: [key] });
+        },
+    });
+}

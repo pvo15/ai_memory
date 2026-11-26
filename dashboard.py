@@ -94,6 +94,7 @@ def _branch(project: str) -> str:
 
 def connected_repos(db) -> list[dict]:
     """The repo folders ai-memory reads (CODE_PROJECTS), with index state and links."""
+    import projects
     import rules
     host_dir = (os.environ.get("PROJECTS_HOST_DIR") or os.environ.get("PROJECTS_DIR", "")).rstrip("/")
     out = []
@@ -115,6 +116,7 @@ def connected_repos(db) -> list[dict]:
                 "commits": commits, "last_commit": last,
                 "rules_files": len(rules.rule_files(p)) if found else 0,
                 "linked": [x for x in codesearch.group_of(p) if x != p],
+                "origin": projects.origin(p),
                 "index": {k: v for k, v in st.items() if k in ("state", "done", "total", "finished", "error")},
             })
     return out
@@ -679,6 +681,34 @@ async def handle_api(db, scope, send, receive=None):
             body = await _read_body(receive)
             ok, msg = await run(set_private, db, int(body.get("id", 0)), bool(body.get("private")))
             return await _send_json(send, {"ok": True, "message": msg} if ok else {"ok": False, "error": msg},
+                                    200 if ok else 400)
+        if path == "/api/cleanup":
+            import cleanup
+            return await _send_json(send, await run(cleanup.report, db))
+        if path == "/api/memory/delete" and method == "POST":
+            import cleanup
+            body = await _read_body(receive)
+            ok, msg = await run(cleanup.delete_memory, db, int(body.get("id", 0)))
+            return await _send_json(send, {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg},
+                                    200 if ok else 400)
+        if path == "/api/task/status" and method == "POST":
+            import cleanup
+            body = await _read_body(receive)
+            ok, msg = await run(cleanup.set_task_status, db, str(body.get("key", "")), str(body.get("status", "")))
+            return await _send_json(send, {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg},
+                                    200 if ok else 400)
+        if path == "/api/projects/available":
+            import projects
+            return await _send_json(send, await run(projects.available))
+        if path in ("/api/projects/connect", "/api/projects/disconnect") and method == "POST":
+            import projects
+            body = await _read_body(receive)
+            name = str(body.get("name", ""))
+            if path.endswith("/connect"):
+                ok, msg = await run(projects.connect, db, name, str(body.get("linked_to", "")), "dashboard")
+            else:
+                ok, msg = await run(projects.disconnect, db, name)
+            return await _send_json(send, {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg},
                                     200 if ok else 400)
         if path.startswith("/api/action/") and method == "POST":
             return await _send_json(send, run_action(db, path.rsplit("/", 1)[-1]))

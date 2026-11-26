@@ -11,6 +11,7 @@ import {
     Moon,
     RefreshCw,
     ScrollText,
+    Sparkles,
     Ticket,
 } from 'lucide-react';
 import { useEffect, useState, type ComponentType } from 'react';
@@ -44,6 +45,7 @@ import { StatusPill } from './components/ui';
 import { ago, duration } from './lib/format';
 import { BackupsPage } from './pages/Backups';
 import { CheatsheetPage } from './pages/Cheatsheet';
+import { CleanupPage } from './pages/Cleanup';
 import { CodePage } from './pages/Code';
 import { JiraPage } from './pages/Jira';
 import { LogsPage } from './pages/Logs';
@@ -57,6 +59,7 @@ const TABS = {
     code: { label: 'Code', icon: Code2 },
     rules: { label: 'Rules', icon: FileText },
     memories: { label: 'Memories', icon: Brain },
+    cleanup: { label: 'Clean-up', icon: Sparkles },
     backups: { label: 'Backups', icon: Archive },
     logs: { label: 'Logs', icon: ScrollText },
     cheatsheet: { label: 'Cheat sheet', icon: BookOpen },
@@ -166,6 +169,7 @@ export function App({ onToken }: { onToken: () => void }) {
                 {tab === 'code' && <CodePage />}
                 {tab === 'rules' && <RulesPage />}
                 {tab === 'memories' && <MemoriesPage />}
+                {tab === 'cleanup' && <CleanupPage />}
                 {tab === 'backups' && <BackupsPage />}
                 {tab === 'logs' && <LogsPage poll={poll} />}
                 {tab === 'cheatsheet' && <CheatsheetPage />}

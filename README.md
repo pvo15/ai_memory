@@ -17,7 +17,9 @@ Your data is one SQLite file and never leaves your Mac.
 | 📐 **Project rules** | `CLAUDE.md`, `AGENTS.md`, `.junie/guidelines.md`, `docs/`, agent files, searchable by topic |
 | 🔎 **Code search** | By meaning (GPU embeddings) and by name, plus fuzzy file search (`ptp` → `PaymentTemplatesPanel`) |
 | 🕰 **"Why" layer** | Paste code → the commits that wrote those exact lines → their Jira story |
-| 📊 **Dashboard** | http://localhost:8765/ui: health, running jobs, Jira, code + local AI explain, memories, backups, logs, cheat sheet |
+| 🔌 **Connect repos** | Pick a repo from your projects folder on the dashboard (or ask the AI) — indexed at once, no `.env` edit, no restart |
+| 🧹 **Clean-up** | Dashboard tab listing stale tasks, near-duplicate memories and memories `recall` never returns, with Done / Pause / Delete |
+| 📊 **Dashboard** | http://localhost:8765/ui: health, running jobs, connected repos, Jira, code + local AI explain, memories, clean-up, backups, logs, cheat sheet |
 | 🛟 **Ops** | Backups Mon–Fri, health checks, stoppable background jobs |
 
 ## How it fits together
@@ -78,7 +80,7 @@ so it never enters the Nix store:
   services.ai-memory = {
     enable = true;
     tokenFile = "/run/secrets/ai-memory-token";   # a file holding only the token
-    environment = { PROJECTS_DIR = "/home/me/src"; CODE_PROJECTS = "app,api"; };
+    environment = { PROJECTS_DIR = "/home/me/src"; CODE_PROJECTS = "app,api"; };  # more repos: dashboard → Connect
     # environmentFile = "/run/secrets/ai-memory-env";  # JIRA_API_TOKEN, SYNC_GIT_TOKEN, ...
   };
 }
@@ -223,9 +225,11 @@ Good to know: a deleted memory stays in the repo's **git history**. Settings you
 | `codesearch.py` · `githistory.py` · `snippet.py` | Code index + search · git history · pasted-code explain |
 | `dashboard.py` · `jobs.py` · `backup.py` | Dashboard API + logs + health · stoppable jobs · backups |
 | `sync.py` | Team memory sync through a shared git repo |
+| `projects.py` · `cleanup.py` | Repos connected at run time (`connect_project`, dashboard) · Clean-up tab report + recall counts |
+| `session_hooks.py` | What the session hook gets besides the briefing: memories block, Claude memory-file import, session-end note |
 | `web/` | Dashboard UI (React 19, TypeScript, Vite, TanStack Query), built inside Docker |
 | `mlx-server/` · `scripts/install-mlx.sh` | GPU server (embeddings + local Qwen2.5-Coder) and its installer |
-| `hooks/session-start.sh` | Session hook. Start: injects the `<task-journal>` briefing, the project's newest memories and, in repos not in `CODE_PROJECTS`, a "how to connect it" note (Claude / GLM). Start + end: copies Claude Code's own memory files into ai-memory (private). `--end` (SessionEnd): adds a "Session ended: …" note to the branch's task journal |
+| `hooks/session-start.sh` | Session hook. Start: injects the `<task-journal>` briefing, the project's newest memories and, in repos not connected yet, a "how to connect it" note (Claude / GLM). Start + end: copies Claude Code's own memory files into ai-memory (private). `--end` (SessionEnd): adds a "Session ended: …" note to the branch's task journal |
 | `setup.sh` · `Dockerfile` · `docker-compose.yml` | One-command setup and the container |
 
 ## Development

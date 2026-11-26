@@ -1,6 +1,7 @@
-import { Archive, Brain, Database, FolderGit2, GitBranch, GitCommitHorizontal, Link2, ListChecks, Loader2, RefreshCw, Ticket } from 'lucide-react';
+import { Archive, Brain, Database, FolderGit2, GitBranch, GitCommitHorizontal, Link2, ListChecks, Loader2, Plug, RefreshCw, Ticket, Unplug } from 'lucide-react';
+import { useState } from 'react';
 
-import { useAction, useHealth, useJobs, useOverview, useSyncStatus, type Poll } from '../api/hooks';
+import { useAction, useAvailableRepos, useConnectRepo, useHealth, useJobs, useOverview, useSyncStatus, type Poll } from '../api/hooks';
 import type { ActionName, ConnectedRepo, Job } from '../api/types';
 import { BarList, WeekColumns } from '../components/charts';
 import { HealthCard, JobsCard } from '../components/Monitor';
@@ -30,14 +31,96 @@ function RepoIndex({ r }: { r: ConnectedRepo }) {
     );
 }
 
+/** Pick a git repo from the projects folder and connect it: no .env edit, no restart. */
+function ConnectRepoForm({ repos }: { repos: ConnectedRepo[] }) {
+    const [open, setOpen] = useState(false);
+    const [name, setName] = useState('');
+    const [linked, setLinked] = useState('');
+    const { data: avail = [], isFetching } = useAvailableRepos(open);
+    const connect = useConnectRepo();
+    const toast = useToast();
+    const choices = avail.filter((a) => !a.connected);
+    if (!open)
+        return (
+            <button className="btn" onClick={() => setOpen(true)} data-testid="connect-repo-open">
+                <Plug size={14} aria-hidden /> Connect a repo
+            </button>
+        );
+    return (
+        <div className="row" style={{ gap: 8 }} data-testid="connect-repo-form">
+            <select className="input" value={name} onChange={(e) => setName(e.target.value)} aria-label="Repo to connect">
+                <option value="">{isFetching ? 'Loading…' : choices.length ? 'Choose a repo…' : 'No other git repos in the projects folder'}</option>
+                {choices.map((a) => (
+                    <option key={a.name} value={a.name}>{a.name}</option>
+                ))}
+            </select>
+            <select
+                className="input"
+                value={linked}
+                onChange={(e) => setLinked(e.target.value)}
+                aria-label="Search together with"
+                title="Optional: a connected repo that is the same product (e.g. web + API); they are then searched together"
+            >
+                <option value="">Searched alone</option>
+                {repos.map((r) => (
+                    <option key={r.name} value={r.name}>together with {r.name}</option>
+                ))}
+            </select>
+            <button
+                className="btn btn-primary"
+                disabled={!name || connect.isPending}
+                onClick={() =>
+                    connect.mutate(
+                        { name, linked_to: linked },
+                        {
+                            onSuccess: (r) => {
+                                toast(r.message);
+                                setName('');
+                                setLinked('');
+                                setOpen(false);
+                            },
+                            onError: (e) => toast(`Failed: ${e.message}`),
+                        },
+                    )
+                }
+            >
+                {connect.isPending ? <Loader2 size={14} className="spin" aria-hidden /> : <Plug size={14} aria-hidden />}
+                Connect
+            </button>
+            <button className="btn" onClick={() => setOpen(false)}>Cancel</button>
+        </div>
+    );
+}
+
+function DisconnectButton({ r }: { r: ConnectedRepo }) {
+    const connect = useConnectRepo();
+    const toast = useToast();
+    if (r.origin !== 'dashboard') return null;
+    return (
+        <button
+            className="btn small"
+            style={{ marginTop: 4 }}
+            disabled={connect.isPending}
+            title="Stop reading this repo. Its index is kept, so connecting it again is instant."
+            onClick={() => {
+                if (!confirm(`Disconnect ${r.name}? ai-memory stops searching it; the repo itself is not touched.`)) return;
+                connect.mutate(
+                    { name: r.name, disconnect: true },
+                    { onSuccess: (x) => toast(x.message), onError: (e) => toast(`Failed: ${e.message}`) },
+                );
+            }}
+        >
+            <Unplug size={13} aria-hidden /> Disconnect
+        </button>
+    );
+}
+
 /** The repo folders ai-memory reads, and which of them are searched together. */
 function ConnectedFoldersCard({ repos }: { repos: ConnectedRepo[] }) {
     return (
         <Card title="Connected folders · read-only" icon={<FolderGit2 size={14} />}>
             {repos.length === 0 ? (
-                <div className="muted">
-                    No repos connected. Add folder names to <code>CODE_PROJECTS</code> in <code>.env</code>, then restart.
-                </div>
+                <div className="muted">No repos connected yet. Connect one below.</div>
             ) : (
                 <div style={{ overflowX: 'auto' }}>
                     <table data-testid="connected-folders">
@@ -59,6 +142,7 @@ function ConnectedFoldersCard({ repos }: { repos: ConnectedRepo[] }) {
                                         <div className="muted small" style={{ overflowWrap: 'anywhere' }} title={r.path}>
                                             {r.path.replace(/^\/Users\/[^/]+/, '~')}
                                         </div>
+                                        <DisconnectButton r={r} />
                                     </td>
                                     <td>
                                         {r.branch ? (
@@ -113,9 +197,12 @@ function ConnectedFoldersCard({ repos }: { repos: ConnectedRepo[] }) {
                     </table>
                 </div>
             )}
+            <div className="row" style={{ marginTop: 10 }}>
+                <ConnectRepoForm repos={repos} />
+            </div>
             <div className="muted small" style={{ marginTop: 8 }}>
-                The index follows each folder&apos;s current branch. Add a folder: <code>CODE_PROJECTS</code> in{' '}
-                <code>.env</code> · link folders into one project: <code>PROJECT_GROUPS=a+b</code>.
+                The index follows each folder&apos;s current branch. Only git repos inside the projects folder can be
+                connected. Repos from <code>CODE_PROJECTS</code> in the settings are removed there.
             </div>
         </Card>
     );

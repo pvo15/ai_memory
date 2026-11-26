@@ -26,6 +26,7 @@ You have an `ai-memory` MCP server that is shared with my other AI tools (Claude
 - `explain_code(query or file)` returns the code + the commits that changed it + their Jira stories + recorded decisions. Use it when asked what code does or **why** it was built that way, and cite the tickets and commit messages.
 - **Pasted code** ("what is this / why / which story?"): `explain_snippet(code)` finds it, git-blames those exact lines and returns the commits + Jira stories that wrote them — explain from that.
 - `find_files(query)` finds files by name or path (fuzzy, like "Go to file"): use it when you know the file/component name.
+- `connect_project(name)` connects a repo from the projects folder (no restart) -- only when the user asks.
 - `file_history(file)` for who changed a file, when and why.
 
 If an ai-memory tool call fails, say so briefly and continue the task.

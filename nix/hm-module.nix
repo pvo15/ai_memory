@@ -151,12 +151,15 @@ in
 
         - `PROJECTS_DIR`: the folder with your repositories (read-only for the server).
         - `CODE_PROJECTS`: comma-separated repository folder names inside `PROJECTS_DIR`
-          that are indexed for code search and explanation.
+          that are indexed for code search and explanation. More can be connected at run
+          time on the dashboard or with the `connect_project` tool (stored in the database).
         - `PROJECT_GROUPS`: repositories that are one product, with `+` between them.
         - `CONNECT_HINT_SKIP`: repository folder names whose sessions skip the "not connected
           to ai-memory" note (`*` = never show it).
         - `SESSION_MEMORIES`: how many of the project's newest memories the session hook shows
           at session start, one line each (default 15, `0` = off).
+        - `STALE_TASK_DAYS`, `NEVER_RECALLED_DAYS`: thresholds of the dashboard's Clean-up tab
+          (defaults 7 and 14 days).
         - `JIRA_URL`, `JIRA_EMAIL`, `JIRA_SYNC_PROJECT` (and `JIRA_API_TOKEN`, a secret):
           Jira story sync. Tuning: `JIRA_SYNC_DAYS`, `JIRA_SYNC_INTERVAL_HOURS`,
           `JIRA_SYNC_TYPES`, `AUTO_TASK_PREFIXES`.

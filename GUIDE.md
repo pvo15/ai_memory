@@ -125,6 +125,7 @@ must be re-trained after every change; this always reads the real, current sourc
 | | `explain_code` | A file or query → code + commits + stories + decisions |
 | | `file_history` | Who changed a file, when, why |
 | | `code_index` / `code_index_status` | Re-index now / index state |
+| | `connect_project` | Connect a repo from `PROJECTS_DIR` (no restart); only when you ask |
 
 You don't call these yourself — **ask the AI in plain words**:
 
@@ -143,10 +144,11 @@ Same server, same port, **logged in automatically** (nothing to paste).
 
 | Tab | What you see / do |
 |---|---|
-| **Overview** | **Health** (8 checks: server, database, MLX GPU, Jira, code index, backups, errors, disk) and **Running jobs** with a **Stop** button each (re-index, Jira sync, backup, AI explanation; stops safely between steps, saved work is kept, the next run continues). Then counts; schedules with **Sync now / Re-index / Backup now**; charts |
+| **Overview** | **Health** (8 checks: server, database, MLX GPU, Jira, code index, backups, errors, disk) and **Running jobs** with a **Stop** button each (re-index, Jira sync, backup, AI explanation; stops safely between steps, saved work is kept, the next run continues). Then counts; schedules with **Sync now / Re-index / Backup now**; **Connected folders** with **Connect a repo** / **Disconnect**; charts |
 | **Jira** | Search & filter cached issues → story + the commits that implemented it |
 | **Code** | Toggle **Code** (by meaning or name) / **Files** (by file path, like "Go to file": name, folder, several words, initials like `ptp` = PaymentTemplatesPanel). Results show the "Why:" tickets; open a file to read it with line numbers and recent commits. **Select lines** anywhere → **Explain N lines** → location, git blame, story and a **local AI** explanation. Also **Explain this**, **Explain file**, **Paste code** |
 | **Memories** | Browse / search saved facts · filter Mine shared / Mine private / From team · **Shared / Private** button per memory · **Team sync** card with **Sync now** |
+| **Clean-up** | **Stale tasks** (active, nothing logged for 7+ days) with **Done / Pause** · **Possible duplicates** (most words of one memory are also in another — often the same fact saved twice in different words) and **Never recalled** (older than 14 days, never returned by `recall` since counting started) with **Delete** (asks first; teammates' memories and Claude file copies can't be deleted here) |
 | **Backups** | Files, next run, restore steps |
 | **Logs** | Live server log (AI tool calls, jobs, errors) + MLX GPU log, filterable |
 | **Cheat sheet** | What to say to Claude/GLM at each step — start, while working, switch, end of day, finish, plus Jira, code and memory phrases — each with a **Copy** button |
@@ -260,12 +262,16 @@ re-run `scripts/install-mlx.sh` (or copy both to `~/.local/share/mlx-embed/` and
 ### 7.6 Code search & repos
 
 Every **10 min** only changed files are re-embedded and new commits read. Add a repo
-(e.g. the backend): clone it into `PROJECTS_DIR`, add it to `CODE_PROJECTS` in `.env`,
-run `docker compose up -d`. Search it with `project="<Name>"`. C#/Java/Kotlin are chunked by
+(e.g. the backend): clone it into `PROJECTS_DIR`, then on the dashboard **Overview → Connected
+folders → Connect a repo** (or ask the AI *"connect the repo my-api"*, which calls
+`connect_project`). No `.env` edit and no restart; the first index starts at once. Repos connected
+there can be **Disconnect**ed there; repos in `CODE_PROJECTS` stay until you remove them from
+`.env`. Search it with `project="<Name>"`. C#/Java/Kotlin are chunked by
 method. Full re-index: ask the AI *"run code_index with force"* (~7 min on the GPU).
 
-**One product in two repos** (frontend + backend): link them in `.env`, e.g.
-`PROJECT_GROUPS=my-app+my-api`, then `docker compose up -d --force-recreate`. Asking about
+**One product in two repos** (frontend + backend): pick the other repo as **together with …**
+when you connect it (or `connect_project("my-api", linked_to="my-app")`), or link them in `.env`,
+e.g. `PROJECT_GROUPS=my-app+my-api`, then `docker compose up -d --force-recreate`. Asking about
 either repo now covers both:
 
 | Tool | With linked repos |
@@ -339,7 +345,7 @@ Edit `.env`, then `docker compose up -d`. Full list with comments: `.env.example
 |---|---|---|
 | `MEMORY_TOKEN` | generated | Protects the server (AI tools send it) |
 | `PROJECTS_DIR` | `~/Desktop/projects` | Folder with your repos (read-only) |
-| `CODE_PROJECTS` | — | Repos to index, comma-separated |
+| `CODE_PROJECTS` | — | Repos to index, comma-separated (more can be connected on the dashboard, no restart) |
 | `PROJECT_GROUPS` | — | Repos searched together as one product, e.g. `my-app+my-api` (several: `a+b;c+d`) |
 | `MLX` | `auto` | `auto` = use the MLX GPU server when it runs; `off` = never (keyword code search, no Explain AI) |
 | `JIRA_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` | — | Your Jira access (optional) |
@@ -347,6 +353,7 @@ Edit `.env`, then `docker compose up -d`. Full list with comments: `.env.example
 | `AUTO_TASK_PREFIXES` | = `JIRA_SYNC_PROJECT` | Ticket prefixes that get a journal automatically from the branch (`*` = any) |
 | `CODE_REINDEX_SECONDS` | `600` | Code + git refresh (`0` = off) |
 | `CODE_TEST_PENALTY` | `0.5` | Test files rank lower unless you ask about tests |
+| `STALE_TASK_DAYS` / `NEVER_RECALLED_DAYS` | `7` / `14` | Clean-up tab: when an active task counts as stale; how old an unrecalled memory must be to be listed |
 | `BACKUP_HOUR` / `_WEEKDAYS` / `_KEEP` / `_ENABLED` | `10` / Mon–Fri / `30` / on | Backups |
 
 MLX server (environment of the service): `MCS_LLM_MODEL` (default Qwen2.5-Coder-7B-Instruct-4bit),

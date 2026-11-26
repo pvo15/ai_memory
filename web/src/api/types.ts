@@ -32,7 +32,15 @@ export interface ConnectedRepo {
     rules_files: number;
     /** repos searched together with this one (PROJECT_GROUPS) */
     linked: string[];
+    /** 'env': from CODE_PROJECTS (remove it there); 'dashboard': connected here, can be disconnected. */
+    origin: 'env' | 'dashboard';
     index: CodeIndexStatus;
+}
+
+/** A git repo inside the projects folder that can be connected. */
+export interface AvailableRepo {
+    name: string;
+    connected: boolean;
 }
 
 export interface Overview {
@@ -245,4 +253,40 @@ export interface RuleHit {
     file: string;
     heading: string;
     snip: string;
+}
+
+// ---------------------------------------------------------------- clean-up view
+export interface CleanupMemory {
+    id: number;
+    content: string;
+    project: string;
+    source: string;
+    author: string;
+    private: number;
+    created_at: number;
+    updated_at: number;
+    /** Copied from a Claude Code memory file: delete the file, not the copy. */
+    from_file: boolean;
+}
+
+export interface StaleTask {
+    key: string;
+    title: string;
+    project: string;
+    branch: string;
+    updated_at: number;
+    last: { kind: string; content: string; created_at: number } | null;
+}
+
+export interface Cleanup {
+    tracking_since: number;
+    /** false until recalls were counted long enough for "never recalled" to mean something */
+    tracking_ready: boolean;
+    never_recalled: CleanupMemory[];
+    never_recalled_total: number;
+    never_recalled_days: number;
+    duplicates: { score: number; a: CleanupMemory; b: CleanupMemory }[];
+    stale_tasks: StaleTask[];
+    stale_task_days: number;
+    total_memories: number;
 }

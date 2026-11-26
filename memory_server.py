@@ -224,6 +224,11 @@ def recall(query: str, project: str = "", limit: int = 8) -> str:
             rows = []
         if not rows:
             return "No matching memories. Recent ones:\n" + fmt(_recent(con, project, limit))
+        try:  # counts feed the dashboard's clean-up view ("never recalled")
+            with con:
+                cleanup.note_recalls(con, [r["id"] for r in rows])
+        except sqlite3.Error:
+            pass
         return fmt(rows)
 
 
@@ -287,6 +292,8 @@ import codesearch  # noqa: E402
 import githistory  # noqa: E402
 import snippet  # noqa: E402
 import session_hooks  # noqa: E402
+import cleanup  # noqa: E402
+import projects  # noqa: E402
 
 tasks.register(mcp, db)
 jira.register(mcp, db)
@@ -294,6 +301,7 @@ rules.register(mcp, db)
 codesearch.register(mcp, db)
 githistory.register(mcp, db)  # after codesearch: adds the "Why:" line to its results
 snippet.register(mcp, db)
+projects.register(mcp, db)  # after codesearch: adds repos connected from the dashboard
 
 # Repo folder names that never get the "not connected" note; "*" turns it off everywhere.
 CONNECT_HINT_SKIP = {p.strip() for p in os.environ.get("CONNECT_HINT_SKIP", "").split(",") if p.strip()}
@@ -315,21 +323,23 @@ def connect_hint(project: str, repo: str) -> str:
     if name in codesearch.CODE_PROJECTS:
         return ""
     settings = "the `.env` in the ai-memory folder" if docker else "the ai-memory settings (`services.ai-memory.environment`)"
-    restart = ("`docker compose up -d --force-recreate` in the ai-memory folder" if docker
-               else "`home-manager switch`")
-    steps = [f"add `{name}` to `CODE_PROJECTS` (comma-separated) in {settings}"]
     if repo and host_dir and not repo.startswith(host_dir + "/"):
-        steps.insert(0, f"move the repo into `{host_dir}` (`PROJECTS_DIR`): ai-memory only reads repos "
-                        f"there, and this one is at `{repo}`")
-    steps.append(f"optional, if it is one product with another connected repo: `PROJECT_GROUPS=other+{name}`")
-    steps.append(f"restart: {restart}; the code index is ready within about 10 minutes")
+        steps = [f"move or clone the repo into `{host_dir}` (`PROJECTS_DIR`): ai-memory only reads repos "
+                 f"there, and this one is at `{repo}`"]
+    else:
+        steps = []
+    steps.append(f"connect `{name}`: the Connect button on the dashboard (http://localhost:{PORT}/ui, Overview → "
+                 f"Connected folders), or ask the AI to call `connect_project(\"{name}\")`; no restart needed")
+    steps.append("optional, if it is one product with another connected repo (e.g. web + API): pick that repo "
+                 "as \"search together with\" (`linked_to`)")
+    steps.append("the code index is ready within a few minutes")
     return ("<ai-memory-setup>\n"
             f"This repo (`{name}`) is not connected to ai-memory. Memories and the task journal work here, "
             "but code_search, find_files, explain_code, file_history and project_rules cannot see its code.\n"
             "In your first reply only, tell the user this in one short line and how to connect it "
-            "(do not change these settings yourself unless the user asks):\n"
+            "(do not connect it yourself unless the user asks):\n"
             + "".join(f"{i}. {s}\n" for i, s in enumerate(steps, 1))
-            + f"To stop this note for this repo, add `{name}` to `CONNECT_HINT_SKIP` in the same settings.\n"
+            + f"To stop this note for this repo, add `{name}` to `CONNECT_HINT_SKIP` in {settings}.\n"
             "</ai-memory-setup>")
 
 
@@ -543,6 +553,7 @@ def main() -> None:
     ap.add_argument("--stdio", action="store_true", help="serve MCP over stdio")
     args = ap.parse_args()
     init_db()
+    cleanup.init(db)
     if args.stdio:
         mcp.run("stdio")
         return

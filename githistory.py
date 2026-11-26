@@ -211,7 +211,7 @@ def start_scheduler(db) -> None:
     def loop():
         time.sleep(20)
         while True:
-            for p in codesearch.CODE_PROJECTS:
+            for p in list(codesearch.CODE_PROJECTS):
                 try:
                     n = sync_history(db, p)
                     if n:
