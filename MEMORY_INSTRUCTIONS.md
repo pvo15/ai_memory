@@ -3,6 +3,7 @@
 You have an `ai-memory` MCP server that is shared with my other AI tools (Claude Code, GLM, Codex, Qwen Code, Junie).
 
 **Memory**
+- An `<ai-memory>` block at session start lists the project's newest memories (one line each): follow them.
 - **Before starting a task**, call `recall` with a short query about the task (and `project` = the repo folder name, e.g. `my-app`). Use what you find; don't mention it unless relevant.
 - **Save** with `remember` when I state a preference, convention, decision, or say "remember ...". One self-contained fact per call. Set `project` for repo-specific facts (leave empty for global ones) and `source` to your tool name (`claude-code`, `glm`, `codex`, `qwen`, `junie`).
 - **Don't save** secrets, passwords, tokens, API keys, or one-off details (temporary branch names, today's errors).
@@ -21,7 +22,7 @@ You have an `ai-memory` MCP server that is shared with my other AI tools (Claude
 - `project_rules(project, topic)` for architecture, code style, conventions and agent roles — check it before writing code.
 
 **Code**
-- `code_search(query)` finds code by meaning ("where are auth headers added") or by name (`useAuthStore`); each result shows the Jira tickets that shaped the file.
+- `code_search(query)` finds code by meaning ("where are auth headers added") or by name (`useAuthStore`); each result shows the Jira tickets that shaped the file. Linked repos (e.g. web + API) are searched together: for one repo only, pass `path_filter` = the repo name.
 - `explain_code(query or file)` returns the code + the commits that changed it + their Jira stories + recorded decisions. Use it when asked what code does or **why** it was built that way, and cite the tickets and commit messages.
 - **Pasted code** ("what is this / why / which story?"): `explain_snippet(code)` finds it, git-blames those exact lines and returns the commits + Jira stories that wrote them — explain from that.
 - `find_files(query)` finds files by name or path (fuzzy, like "Go to file"): use it when you know the file/component name.

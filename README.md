@@ -225,7 +225,7 @@ Good to know: a deleted memory stays in the repo's **git history**. Settings you
 | `sync.py` | Team memory sync through a shared git repo |
 | `web/` | Dashboard UI (React 19, TypeScript, Vite, TanStack Query), built inside Docker |
 | `mlx-server/` · `scripts/install-mlx.sh` | GPU server (embeddings + local Qwen2.5-Coder) and its installer |
-| `hooks/session-start.sh` | Session hook: injects the `<task-journal>` briefing into Claude / GLM |
+| `hooks/session-start.sh` | Session hook. Start: injects the `<task-journal>` briefing, the project's newest memories and, in repos not in `CODE_PROJECTS`, a "how to connect it" note (Claude / GLM). Start + end: copies Claude Code's own memory files into ai-memory (private). `--end` (SessionEnd): adds a "Session ended: …" note to the branch's task journal |
 | `setup.sh` · `Dockerfile` · `docker-compose.yml` | One-command setup and the container |
 
 ## Development

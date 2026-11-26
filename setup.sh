@@ -127,18 +127,20 @@ if command -v claude >/dev/null; then
 import json, sys
 path, cmd = sys.argv[1], sys.argv[2]
 s = json.load(open(path))
-groups = s.setdefault("hooks", {}).setdefault("SessionStart", [])
-# drop older copies of our hook (any path), then add exactly one
-for g in groups:
-    g["hooks"] = [h for h in g.get("hooks", []) if not h.get("command", "").endswith("hooks/session-start.sh")]
-groups[:] = [g for g in groups if g.get("hooks")]
-target = next((g for g in groups if g.get("matcher", "") == ""), None)
-if target is None:
-    target = {"matcher": "", "hooks": []}; groups.append(target)
-target["hooks"].append({"type": "command", "command": cmd, "timeout": 5})
+# SessionStart: briefing + memories; SessionEnd: journal note. Both copy Claude's memory files.
+for event, command in (("SessionStart", cmd), ("SessionEnd", cmd + " --end")):
+    groups = s.setdefault("hooks", {}).setdefault(event, [])
+    # drop older copies of our hook (any path), then add exactly one
+    for g in groups:
+        g["hooks"] = [h for h in g.get("hooks", []) if "hooks/session-start.sh" not in h.get("command", "")]
+    groups[:] = [g for g in groups if g.get("hooks")]
+    target = next((g for g in groups if g.get("matcher", "") == ""), None)
+    if target is None:
+        target = {"matcher": "", "hooks": []}; groups.append(target)
+    target["hooks"].append({"type": "command", "command": command, "timeout": 10})
 json.dump(s, open(path, "w"), indent=2); open(path, "a").write("\n")
 PY
-  echo "connected; session hook added to $SETTINGS"
+  echo "connected; session hooks (start + end) added to $SETTINGS"
 else
   echo "claude CLI not found — skipped"
 fi

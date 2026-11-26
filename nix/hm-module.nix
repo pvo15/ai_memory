@@ -153,6 +153,10 @@ in
         - `CODE_PROJECTS`: comma-separated repository folder names inside `PROJECTS_DIR`
           that are indexed for code search and explanation.
         - `PROJECT_GROUPS`: repositories that are one product, with `+` between them.
+        - `CONNECT_HINT_SKIP`: repository folder names whose sessions skip the "not connected
+          to ai-memory" note (`*` = never show it).
+        - `SESSION_MEMORIES`: how many of the project's newest memories the session hook shows
+          at session start, one line each (default 15, `0` = off).
         - `JIRA_URL`, `JIRA_EMAIL`, `JIRA_SYNC_PROJECT` (and `JIRA_API_TOKEN`, a secret):
           Jira story sync. Tuning: `JIRA_SYNC_DAYS`, `JIRA_SYNC_INTERVAL_HOURS`,
           `JIRA_SYNC_TYPES`, `AUTO_TASK_PREFIXES`.
@@ -198,7 +202,9 @@ in
       description = ''
         The SessionStart hook for Claude Code: it prints the current task's briefing. It reads
         the token from the file the service writes at start, so it prints nothing while the
-        service has not run yet. Append `--json` for clients that expect JSON output.
+        service has not run yet. Append `--json` for clients that expect JSON output. Use it
+        with `--end` as the SessionEnd hook too: it adds a short "where the session stopped"
+        note to the task journal. Both copy Claude Code's own memory files into ai-memory.
       '';
     };
   };

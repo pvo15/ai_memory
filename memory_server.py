@@ -286,6 +286,7 @@ import rules  # noqa: E402
 import codesearch  # noqa: E402
 import githistory  # noqa: E402
 import snippet  # noqa: E402
+import session_hooks  # noqa: E402
 
 tasks.register(mcp, db)
 jira.register(mcp, db)
@@ -293,6 +294,43 @@ rules.register(mcp, db)
 codesearch.register(mcp, db)
 githistory.register(mcp, db)  # after codesearch: adds the "Why:" line to its results
 snippet.register(mcp, db)
+
+# Repo folder names that never get the "not connected" note; "*" turns it off everywhere.
+CONNECT_HINT_SKIP = {p.strip() for p in os.environ.get("CONNECT_HINT_SKIP", "").split(",") if p.strip()}
+
+
+def connect_hint(project: str, repo: str) -> str:
+    """First-message note for a session in a repo whose code ai-memory does not read yet.
+
+    project: repo folder name the hook sent; repo: the main checkout's path on the user's
+    machine (for a git worktree, the repo it belongs to). Empty when the repo is connected.
+    """
+    name = os.path.basename(repo.rstrip("/")) if repo else project
+    if not name or "*" in CONNECT_HINT_SKIP or name in CONNECT_HINT_SKIP:
+        return ""
+    docker = bool(os.environ.get("PROJECTS_HOST_DIR"))  # set only by docker-compose.yml
+    host_dir = (os.environ.get("PROJECTS_HOST_DIR") or os.environ.get("PROJECTS_DIR", "")).rstrip("/")
+    if repo and host_dir and repo.startswith(host_dir + "/"):
+        name = repo[len(host_dir) + 1:].rstrip("/")  # CODE_PROJECTS holds paths inside PROJECTS_DIR
+    if name in codesearch.CODE_PROJECTS:
+        return ""
+    settings = "the `.env` in the ai-memory folder" if docker else "the ai-memory settings (`services.ai-memory.environment`)"
+    restart = ("`docker compose up -d --force-recreate` in the ai-memory folder" if docker
+               else "`home-manager switch`")
+    steps = [f"add `{name}` to `CODE_PROJECTS` (comma-separated) in {settings}"]
+    if repo and host_dir and not repo.startswith(host_dir + "/"):
+        steps.insert(0, f"move the repo into `{host_dir}` (`PROJECTS_DIR`): ai-memory only reads repos "
+                        f"there, and this one is at `{repo}`")
+    steps.append(f"optional, if it is one product with another connected repo: `PROJECT_GROUPS=other+{name}`")
+    steps.append(f"restart: {restart}; the code index is ready within about 10 minutes")
+    return ("<ai-memory-setup>\n"
+            f"This repo (`{name}`) is not connected to ai-memory. Memories and the task journal work here, "
+            "but code_search, find_files, explain_code, file_history and project_rules cannot see its code.\n"
+            "In your first reply only, tell the user this in one short line and how to connect it "
+            "(do not change these settings yourself unless the user asks):\n"
+            + "".join(f"{i}. {s}\n" for i, s in enumerate(steps, 1))
+            + f"To stop this note for this repo, add `{name}` to `CONNECT_HINT_SKIP` in the same settings.\n"
+            "</ai-memory-setup>")
 
 
 # ---------------------------------------------------------------- http app
@@ -395,6 +433,9 @@ class BearerAuth:
             if scope["path"] == "/context":
                 await self.context(scope, send)
                 return
+            if scope["path"] in ("/context/memory-files", "/context/session-end"):
+                await self.context_post(scope, receive, send)
+                return
             if scope["path"].startswith("/api/"):  # dashboard data (token already checked above)
                 import dashboard
                 await dashboard.handle_api(db, scope, send, receive)
@@ -412,6 +453,7 @@ class BearerAuth:
         import asyncio
         q = {k: v[0] for k, v in parse_qs(scope.get("query_string", b"").decode()).items()}
         branch, project, key = q.get("branch", ""), q.get("project", ""), q.get("key", "")
+        repo, client = q.get("repo", ""), q.get("client", "")
         created = False
         k = tasks.norm_key(key) or tasks.key_from_branch(branch)
         if k and tasks.auto_start_allowed(k):
@@ -458,10 +500,42 @@ class BearerAuth:
                         f"branch=\"{branch}\").\n</task-journal>")
             else:
                 text = ""
+        # The repo a worktree belongs to, not the worktree folder's own name.
+        mem_project = os.path.basename(repo.rstrip("/")) if repo else project
+        with closing(db()) as con:
+            mems = session_hooks.memories_block(con, mem_project, client)
+        text = "\n\n".join(x for x in (connect_hint(project, repo), mems, text) if x)
         body = text.encode()
         await send({"type": "http.response.start", "status": 200,
                     "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
         await send({"type": "http.response.body", "body": body})
+
+    @staticmethod
+    async def context_post(scope, receive, send):
+        """POST /context/memory-files and /context/session-end (JSON body), from the session hook."""
+        import json
+        reply = b"POST a JSON body"
+        status = 405
+        if scope.get("method") == "POST":
+            raw, more = b"", True
+            while more and len(raw) <= 5_000_000:
+                msg = await receive()
+                raw += msg.get("body", b"")
+                more = msg.get("more_body", False)
+            try:
+                payload = json.loads(raw or b"{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("expected a JSON object")
+                if scope["path"] == "/context/memory-files":
+                    reply = session_hooks.import_memory_files(db, payload).encode()
+                else:
+                    reply = session_hooks.session_end(db, payload).encode()
+                status = 200
+            except ValueError as e:
+                reply, status = f"bad request: {e}".encode(), 400
+        await send({"type": "http.response.start", "status": status,
+                    "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
+        await send({"type": "http.response.body", "body": reply})
 
 
 def main() -> None:

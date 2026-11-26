@@ -44,7 +44,7 @@ cd ai-memory
  2 creates .env                  → your own MEMORY_TOKEN, repos, Jira (file is private, chmod 600)
  3 installs the MLX GPU server   → macOS service, starts at login, restarts on crash
  4 builds + starts ai-memory     → Docker container on http://localhost:8765
- 5 connects Claude Code          → MCP server + session hook (auto task briefing)
+ 5 connects Claude Code          → MCP server + session hooks (task briefing + memories at start, journal note at end)
  6 connects Codex, Qwen, Junie   → if installed
  7 connects GLM / ZCode          → if installed
  8 adds usage instructions       → ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.qwen/QWEN.md
